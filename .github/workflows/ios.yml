@@ -17,7 +17,7 @@ on:
 
 jobs:
   test:
-    runs-on: macos-26
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - run: brew install xcodegen
@@ -33,7 +33,7 @@ jobs:
   testflight:
     needs: test
     if: github.event_name == 'workflow_dispatch' && inputs.testflight
-    runs-on: macos-26
+    runs-on: macos-latest
     env:
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
