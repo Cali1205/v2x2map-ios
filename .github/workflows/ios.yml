@@ -37,6 +37,12 @@ jobs:
       BUNDLE_ID: ${{ vars.BUNDLE_ID || 'io.github.cali1205.v2x2map' }}
     steps:
       - uses: actions/checkout@v5
+      # App Store Connect only accepts builds made with the iOS 26 SDK (Xcode 26+).
+      - name: Select Xcode 26
+        run: |
+          XC=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          test -n "$XC" || { echo "::error::No Xcode 26 on this runner, pick another one"; ls -d /Applications/Xcode*; exit 1; }
+          sudo xcode-select -s "$XC" && xcodebuild -version
       - run: brew install xcodegen
       - run: xcodegen generate
       - name: Build & unit tests (Simulator, unsigned)
