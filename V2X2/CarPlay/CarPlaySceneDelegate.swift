@@ -27,6 +27,15 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         template.trailingNavigationBarButtons = [
             CPBarButton(title: "Meldungen") { [weak self] _ in self?.showHazards() },
         ]
+        mapVC.onNewHazard = { [weak template] s, distance in
+            guard let template, template.currentNavigationAlert == nil else { return }
+            let sub = distance.map { String(format: "%.0f m · ITS-G5", $0) } ?? "ITS-G5"
+            let alert = CPNavigationAlert(titleVariants: [s.title], subtitleVariants: [sub],
+                                          image: UIImage(systemName: "exclamationmark.triangle.fill"),
+                                          primaryAction: CPAlertAction(title: "OK", style: .cancel) { _ in },
+                                          secondaryAction: nil, duration: 8)
+            template.present(navigationAlert: alert, animated: true)
+        }
         interfaceController.setRootTemplate(template, animated: false, completion: nil)
     }
 
@@ -66,7 +75,10 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
 final class CarMapViewController: UIViewController, MKMapViewDelegate {
     private let map = MKMapView()
     private var annotations: [UInt64: StationAnnotation] = [:]
+    private var alerted: Set<UInt64> = []
     private var timer: Timer?
+    /// Called once per new hazard (DENM) within 2 km, or of unknown distance.
+    var onNewHazard: (Station, Double?) -> Void = { _, _ in }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -102,6 +114,10 @@ final class CarMapViewController: UIViewController, MKMapViewDelegate {
         }
         for s in stations {
             guard let c = s.coordinate else { continue }
+            if s.msgType == .denm, !alerted.contains(s.id) {
+                let d = AppModel.shared.location.distance(to: c)
+                if (d ?? 0) <= 2000 { alerted.insert(s.id); onNewHazard(s, d) }
+            }
             if let a = annotations[s.id] {
                 a.update(s, c)
                 (map.view(for: a) as? MKMarkerAnnotationView).map { style($0, a) }
