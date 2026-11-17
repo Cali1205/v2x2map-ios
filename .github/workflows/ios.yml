@@ -52,8 +52,8 @@ jobs:
           echo "$ASC_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
           plutil -replace teamID -string "$TEAM_ID" ExportOptions.plist
       # Logs are public: raw xcodebuild output is kept in files and only shown redacted.
-      # The archive is only ad-hoc signed ("-") so the entitlements get embedded without needing
-      # a development profile (which would require a registered device). The export step below
+      # The archive is built unsigned and then only ad-hoc signed ("-") so the entitlements get
+      # embedded without a development profile (which would need a registered device). The export step below
       # re-signs it for App Store distribution with Apple's cloud-managed certificate.
       - name: Archive
         if: env.SIGN == 'true'
@@ -63,13 +63,15 @@ jobs:
           xcodebuild archive -project V2X2.xcodeproj -scheme V2X2 -configuration Release \
             -destination generic/platform=iOS -archivePath "$RUNNER_TEMP/V2X2.xcarchive" \
             DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_ENTITLEMENTS="$ENT" \
-            CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO PROVISIONING_PROFILE_SPECIFIER= \
+            CODE_SIGNING_ALLOWED=NO \
             PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
             CURRENT_PROJECT_VERSION="${{ github.run_number }}" > "$RUNNER_TEMP/archive.log" 2>&1 \
             || { sh scripts/redact.sh < "$RUNNER_TEMP/archive.log" | grep -E "error:|ARCHIVE FAILED" | tail -40; exit 1; }
+          # Xcode refuses ad-hoc signing for iOS SDKs, plain codesign does not.
+          APP="$RUNNER_TEMP/V2X2.xcarchive/Products/Applications/V2X2.app"
+          codesign --force --sign - --entitlements "$ENT" --generate-entitlement-der "$APP"
           echo "Archive succeeded. Embedded entitlements:"
-          codesign -d --entitlements - --xml "$RUNNER_TEMP/V2X2.xcarchive/Products/Applications/V2X2.app" 2>/dev/null \
-            | plutil -p - | grep -v -E "application-identifier|team-identifier" || true
+          codesign -d --entitlements - --xml "$APP" 2>/dev/null | plutil -p - || true
       - name: Upload to TestFlight
         if: env.SIGN == 'true'
         run: |
