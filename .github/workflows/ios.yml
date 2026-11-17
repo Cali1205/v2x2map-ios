@@ -19,8 +19,17 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  # One job so a signed build only waits once for a (scarce) macOS runner.
+  # Signing steps run only on manual runs by repo writers; fork PRs never get secrets.
+  build:
     runs-on: macos-latest
+    env:
+      SIGN: ${{ github.event_name == 'workflow_dispatch' && inputs.testflight }}
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      # Forks: set the repository variable BUNDLE_ID to your own App ID.
+      BUNDLE_ID: ${{ vars.BUNDLE_ID || 'io.github.cali1205.v2x2map' }}
     steps:
       - uses: actions/checkout@v5
       - run: brew install xcodegen
@@ -33,22 +42,8 @@ jobs:
             || { grep -E "error:|failed" build.log; tail -60 build.log; exit 1; }
           grep -E "warning: .*/V2X2/|Test Case .*(passed|failed)" build.log || true
 
-  # Secrets are only available here: manual runs by repo writers, never fork PRs.
-  testflight:
-    needs: test
-    if: github.event_name == 'workflow_dispatch' && inputs.testflight
-    runs-on: macos-latest
-    env:
-      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-      TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      # Forks: set the repository variable BUNDLE_ID to your own App ID.
-      BUNDLE_ID: ${{ vars.BUNDLE_ID || 'io.github.cali1205.v2x2map' }}
-    steps:
-      - uses: actions/checkout@v5
-      - run: brew install xcodegen
-      - run: xcodegen generate
       - name: App Store Connect API key
+        if: env.SIGN == 'true'
         env:
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
         run: |
@@ -61,6 +56,7 @@ jobs:
       # a development profile (which would require a registered device). The export step below
       # re-signs it for App Store distribution with Apple's cloud-managed certificate.
       - name: Archive
+        if: env.SIGN == 'true'
         run: |
           ENT=V2X2/V2X2.entitlements
           if [ "${{ inputs.carplay }}" = "true" ]; then ENT=V2X2/CarPlay.entitlements; fi
@@ -75,6 +71,7 @@ jobs:
           codesign -d --entitlements - --xml "$RUNNER_TEMP/V2X2.xcarchive/Products/Applications/V2X2.app" 2>/dev/null \
             | plutil -p - | grep -v -E "application-identifier|team-identifier" || true
       - name: Upload to TestFlight
+        if: env.SIGN == 'true'
         run: |
           xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/V2X2.xcarchive" \
             -exportOptionsPlist ExportOptions.plist -exportPath "$RUNNER_TEMP/export" \
