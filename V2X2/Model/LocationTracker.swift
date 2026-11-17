@@ -1,0 +1,36 @@
+import CoreLocation
+import Observation
+
+/// Own position + driven track (blue line on the map) and distance to stations.
+@Observable
+final class LocationTracker: NSObject, CLLocationManagerDelegate {
+    private(set) var last: CLLocation?
+    private(set) var track: [CLLocationCoordinate2D] = []
+    @ObservationIgnored private let manager = CLLocationManager()
+
+    override init() {
+        super.init()
+        manager.delegate = self
+        manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
+        manager.distanceFilter = 5
+        manager.requestWhenInUseAuthorization()
+        manager.startUpdatingLocation()
+    }
+
+    func distance(to c: CLLocationCoordinate2D) -> CLLocationDistance? {
+        last?.distance(from: CLLocation(latitude: c.latitude, longitude: c.longitude))
+    }
+
+    func clearTrack() { track.removeAll() }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let l = locations.last, l.horizontalAccuracy >= 0, l.horizontalAccuracy < 50 else { return }
+        last = l
+        track.append(l.coordinate)
+        if track.count > 10_000 { track.removeFirst(1_000) }
+    }
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        manager.startUpdatingLocation()
+    }
+}

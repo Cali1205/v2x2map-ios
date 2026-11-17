@@ -1,0 +1,74 @@
+name: iOS
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      testflight:
+        description: Signiert bauen und zu TestFlight hochladen
+        type: boolean
+        default: true
+      carplay:
+        description: Mit CarPlay-Entitlement signieren (erst nach Freigabe durch Apple!)
+        type: boolean
+        default: false
+
+jobs:
+  test:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen
+      - run: xcodegen generate
+      - name: Build & unit tests (Simulator)
+        run: |
+          UDID=$(xcrun simctl list devices available -j | jq -r '[.devices[][] | select(.name | startswith("iPhone"))][0].udid')
+          xcodebuild test -project V2X2.xcodeproj -scheme V2X2 -destination "id=$UDID" \
+            CODE_SIGNING_ALLOWED=NO > build.log 2>&1 \
+            || { grep -E "error:|failed" build.log; tail -60 build.log; exit 1; }
+          grep -E "warning: .*/V2X2/|Test Case .*(passed|failed)" build.log || true
+
+  testflight:
+    needs: test
+    if: github.event_name == 'workflow_dispatch' && inputs.testflight
+    runs-on: macos-26
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen
+      - run: xcodegen generate
+      - name: App Store Connect API key
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          test -n "$ASC_KEY_ID" -a -n "$ASC_ISSUER_ID" -a -n "$TEAM_ID" -a -n "$ASC_KEY_P8" \
+            || { echo "::error::Secrets ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8, APPLE_TEAM_ID fehlen (siehe README)"; exit 1; }
+          echo "$ASC_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+          plutil -replace teamID -string "$TEAM_ID" ExportOptions.plist
+      - name: Archive
+        run: |
+          set -o pipefail
+          ENT=V2X2/V2X2.entitlements
+          if [ "${{ inputs.carplay }}" = "true" ]; then ENT=V2X2/CarPlay.entitlements; fi
+          xcodebuild archive -project V2X2.xcodeproj -scheme V2X2 -configuration Release \
+            -destination generic/platform=iOS -archivePath "$RUNNER_TEMP/V2X2.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_ENTITLEMENTS="$ENT" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}" | tail -40
+      - name: Upload to TestFlight
+        run: |
+          set -o pipefail
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/V2X2.xcarchive" \
+            -exportOptionsPlist ExportOptions.plist -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID" | tail -40
+      - if: always()
+        run: rm -f "$RUNNER_TEMP/AuthKey.p8"
