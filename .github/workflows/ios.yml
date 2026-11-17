@@ -14,6 +14,11 @@ on:
         description: Sign with the CarPlay entitlement (only after Apple granted it!)
         type: boolean
         default: false
+      runner:
+        description: macOS runner (try another one if the job is never picked up)
+        type: choice
+        options: [macos-latest, macos-15-intel, macos-26]
+        default: macos-latest
 
 permissions:
   contents: read
@@ -22,7 +27,7 @@ jobs:
   # One job so a signed build only waits once for a (scarce) macOS runner.
   # Signing steps run only on manual runs by repo writers; fork PRs never get secrets.
   build:
-    runs-on: macos-latest
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'macos-latest' }}
     env:
       SIGN: ${{ github.event_name == 'workflow_dispatch' && inputs.testflight }}
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
