@@ -26,9 +26,10 @@ iPhone and in CarPlay.
 | Own track | ✅ | |
 | "Geiger counter" mode (click/haptic per frame, alert on DENM) | ✅ | |
 | PCAP recording for Wireshark (Files app / share sheet) | ✅ | |
+| MQTT forwarding of raw frames (`its/<node>/packet`, `mqtts://`/`mqtt://`, optional login) | ✅ | shared |
 | Receiver duty-cycle settings | ✅ | |
 
-Not ported from the Android app: MQTT forwarding, USB serial (not possible on iOS),
+Not ported from the Android app: MQTT type filter and multiple brokers, USB serial (not possible on iOS),
 offline tile cache and OSM tile styles (MapKit is used instead). The UI is in German.
 
 ## Hardware
@@ -109,8 +110,10 @@ scripts/redact.sh               strips names/e-mails from signing logs (Actions 
 
 ## Privacy & legal
 
-- Everything is decoded on the phone. The app has no server, account, analytics or network code.
+- Everything is decoded on the phone. The app has no server, account or analytics.
   Location is only used to show your position and distances.
+- The only network traffic is the optional MQTT forwarding (off by default). It sends the raw received
+  frames to the broker you configure; the broker password is stored in the iOS Keychain.
 - PCAP recordings stay on the device until you share them. They contain raw radio frames,
   including other vehicles' positions, so be careful where you publish them.
 - Receiving and especially redistributing ITS-G5 data may be restricted by telecommunications

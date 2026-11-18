@@ -43,7 +43,7 @@ struct ContentView: View {
     }
 
     private var bottomBar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 22) {
             Button { showList = true } label: {
                 Label("\(model.stations.count)", systemImage: "list.bullet")
             }
@@ -71,9 +71,9 @@ struct ContentView: View {
             .accessibilityLabel(model.recorder.isRecording ? "Aufnahme stoppen" : "PCAP aufnehmen")
             Button { showSettings = true } label: { Image(systemName: "gearshape") }
         }
-        .font(.title3)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 10)
+        .font(.title)
+        .padding(.horizontal, 26)
+        .padding(.vertical, 12)
         .background(.regularMaterial, in: Capsule())
         .padding(.bottom, 8)
     }

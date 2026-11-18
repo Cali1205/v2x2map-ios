@@ -40,6 +40,7 @@ final class AppModel {
     private(set) var receiverMac: String?
     let location = LocationTracker()
     let recorder = PcapRecorder()
+    let mqtt = MqttClient()
 
     @ObservationIgnored private let receiver = Receiver()
     @ObservationIgnored private var reader = FrameReader()
@@ -48,14 +49,16 @@ final class AppModel {
     var markerTTL: TimeInterval { TimeInterval(max(1, UserDefaults.standard.integer(forKey: Settings.ttlMinutes))) * 60 }
 
     private init() {
-        UserDefaults.standard.register(defaults: [Settings.ttlMinutes: 60, Settings.showTrack: true])
+        UserDefaults.standard.register(defaults: [Settings.ttlMinutes: 60, Settings.showTrack: true,
+                                                  Settings.mqttURL: Settings.defaultBroker])
         receiver.onState = { [weak self] in self?.state = $0 }
         receiver.onConfig = { [weak self] in self?.receiverConfig = $0 }
-        receiver.onMac = { [weak self] in self?.receiverMac = $0 }
+        receiver.onMac = { [weak self] in self?.receiverMac = $0; self?.syncMqtt() }
         receiver.onData = { [weak self] data in
             guard let self else { return }
             for f in reader.feed(data) { ingest(f) }
         }
+        syncMqtt()
         pruneTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in self?.prune() }
     }
 
@@ -69,9 +72,22 @@ final class AppModel {
     func forgetReceiver() { receiver.forget() }
     func clear() { stations.removeAll() }
 
+    /// Applies the MQTT settings; call after they change. Node ID defaults to the receiver MAC.
+    func syncMqtt() {
+        let d = UserDefaults.standard
+        let node = d.string(forKey: Settings.mqttNode)?.trimmingCharacters(in: .whitespaces).nonEmpty
+            ?? receiverMac?.replacingOccurrences(of: ":", with: "").lowercased() ?? "ios"
+        guard d.bool(forKey: Settings.mqttOn),
+              let cfg = MqttClient.Config(url: d.string(forKey: Settings.mqttURL) ?? "", user: d.string(forKey: Settings.mqttUser) ?? "",
+                                          password: MqttPassword.get(), node: node)
+        else { return mqtt.stop() }
+        mqtt.start(cfg)
+    }
+
     func ingest(_ f: Frame) {
         totalFrames += 1
         recorder.write(f)
+        mqtt.publish(Data(f.payload))
         let d = f.decoded
         guard let id = d.stationId ?? f.transmitter else { return }
         if d.etherType == ItsG5Decoder.etherTypeItsG5 { itsFrames += 1 }
@@ -105,6 +121,11 @@ enum Settings {
     static let geiger = "geiger"
     static let showTrack = "show_track"
     static let mapStyle = "map_style"
+    static let mqttOn = "mqtt_on"
+    static let mqttURL = "mqtt_url"
+    static let mqttUser = "mqtt_user"
+    static let mqttNode = "mqtt_node"
+    static let defaultBroker = "mqtts://cits1.opentrafficmap.org:8883"  // same default as the Android app
 }
 
 /// Audio + haptic tick per frame, distinct alert on DENM (Android "Geiger-counter mode").
@@ -122,4 +143,8 @@ enum Geiger {
             light.impactOccurred()
         }
     }
+}
+
+private extension String {
+    var nonEmpty: String? { isEmpty ? nil : self }
 }

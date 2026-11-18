@@ -6,6 +6,11 @@ struct SettingsView: View {
     @AppStorage(Settings.ttlMinutes) private var ttl = 60
     @AppStorage(Settings.geiger) private var geiger = false
     @AppStorage(Settings.showTrack) private var showTrack = true
+    @AppStorage(Settings.mqttOn) private var mqttOn = false
+    @AppStorage(Settings.mqttURL) private var mqttURL = Settings.defaultBroker
+    @AppStorage(Settings.mqttUser) private var mqttUser = ""
+    @AppStorage(Settings.mqttNode) private var mqttNode = ""
+    @State private var mqttPassword = MqttPassword.get()
     @State private var cycle: [Int] = [1000, 1000, 500, 400]
 
     private let cycleLabels = ["Suche: Sniff", "Suche: BLE", "Verbunden: Sniff", "Verbunden: BLE"]
@@ -32,6 +37,28 @@ struct SettingsView: View {
                     }
                 }
                 Section {
+                    Toggle("An MQTT-Broker senden", isOn: $mqttOn)
+                    if mqttOn {
+                        TextField("Broker", text: $mqttURL, prompt: Text(Settings.defaultBroker))
+                            .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        TextField("Benutzer (optional)", text: $mqttUser)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        SecureField("Passwort (optional)", text: $mqttPassword)
+                        TextField("Node-ID", text: $mqttNode,
+                                  prompt: Text(model.receiverMac?.replacingOccurrences(of: ":", with: "").lowercased() ?? "MAC des Empfängers"))
+                            .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        LabeledContent("Status", value: mqttStatus)
+                    }
+                } header: {
+                    Text("MQTT")
+                } footer: {
+                    Text("Sendet jeden empfangenen Rohframe an its/<Node-ID>/packet, dazu online/offline an its/<Node-ID>/status. "
+                         + "mqtts:// = verschlüsselt (Port 8883), mqtt:// = unverschlüsselt (1883). "
+                         + "Läuft weiter, solange die App per Bluetooth im Hintergrund aktiv ist.")
+                }
+                .onChange(of: mqttOn) { applyMqtt() }
+                .onSubmit { applyMqtt() }
+                Section {
                     LabeledContent("Status", value: "\(model.state)")
                     if let mac = model.receiverMac { LabeledContent("MAC", value: mac) }
                     if model.receiverConfig != nil {
@@ -50,8 +77,24 @@ struct SettingsView: View {
             .navigationTitle("Einstellungen")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { Button("Fertig") { dismiss() } }
+            .onDisappear { applyMqtt() }
             .onAppear { if let c = model.receiverConfig { cycle = c } }
             .onChange(of: model.receiverConfig ?? []) { _, c in if c.count == 4 { cycle = c } }
+        }
+    }
+
+    /// Not on every keystroke, or each character would reconnect.
+    private func applyMqtt() {
+        if mqttPassword != MqttPassword.get() { MqttPassword.set(mqttPassword) }
+        model.syncMqtt()
+    }
+
+    private var mqttStatus: String {
+        switch model.mqtt.state {
+        case .off: "aus"
+        case .connecting: "verbinde …"
+        case .connected: "verbunden · \(model.mqtt.sent) gesendet"
+        case .failed(let msg): msg
         }
     }
 }
