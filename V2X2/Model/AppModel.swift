@@ -18,6 +18,10 @@ struct Station: Identifiable {
     var count = 0
     var recent: [Frame] = []  // newest first, max 20 (like the Android log)
 
+    /// Still sending: heard within the last few seconds (CAMs come at 1–10 Hz, the receiver
+    /// alternates radio and Bluetooth, so allow some gaps).
+    var isActive: Bool { Date().timeIntervalSince(lastSeen) < 15 }
+
     var idHex: String { String(format: "%012llX", id & 0xFFFF_FFFF_FFFF) }
 
     var title: String {
@@ -49,7 +53,7 @@ final class AppModel {
     var markerTTL: TimeInterval { TimeInterval(max(1, UserDefaults.standard.integer(forKey: Settings.ttlMinutes))) * 60 }
 
     private init() {
-        UserDefaults.standard.register(defaults: [Settings.ttlMinutes: 60, Settings.showTrack: true,
+        UserDefaults.standard.register(defaults: [Settings.ttlMinutes: 10, Settings.showTrack: true,
                                                   Settings.mqttURL: Settings.defaultBroker])
         receiver.onState = { [weak self] in self?.state = $0 }
         receiver.onConfig = { [weak self] in self?.receiverConfig = $0 }
@@ -59,13 +63,14 @@ final class AppModel {
             for f in reader.feed(data) { ingest(f) }
         }
         syncMqtt()
-        pruneTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in self?.prune() }
+        pruneTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.prune() }
     }
 
-    /// Stations with a position that were seen within the marker TTL.
+    /// Stations with a position that were seen within the marker TTL (only active ones if so set).
     var mapStations: [Station] {
         let cutoff = Date().addingTimeInterval(-markerTTL)
-        return stations.values.filter { $0.coordinate != nil && $0.lastSeen >= cutoff }
+        let hideInactive = UserDefaults.standard.bool(forKey: Settings.hideInactive)
+        return stations.values.filter { $0.coordinate != nil && $0.lastSeen >= cutoff && (!hideInactive || $0.isActive) }
     }
 
     func writeReceiverConfig(_ v: [Int]) { receiver.writeConfig(v) }
@@ -121,6 +126,7 @@ enum Settings {
     static let geiger = "geiger"
     static let showTrack = "show_track"
     static let mapStyle = "map_style"
+    static let hideInactive = "hide_inactive"
     static let mqttOn = "mqtt_on"
     static let mqttURL = "mqtt_url"
     static let mqttUser = "mqtt_user"

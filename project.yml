@@ -42,7 +42,7 @@ targets:
         NSBluetoothAlwaysUsageDescription: Verbindet sich per Bluetooth mit dem ITS-G5-Empfänger (ESP32-C5).
         NSLocationWhenInUseUsageDescription: Zeigt deine Position, Fahrspur und die Entfernung zu Fahrzeugen und Ampeln.
         NSLocalNetworkUsageDescription: Sendet empfangene Frames an deinen MQTT-Broker im lokalen Netz.
-        UIBackgroundModes: [bluetooth-central]
+        UIBackgroundModes: [bluetooth-central, location]
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
         UIApplicationSceneManifest:

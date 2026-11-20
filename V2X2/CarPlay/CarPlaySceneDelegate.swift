@@ -162,6 +162,7 @@ final class StationAnnotation: NSObject, MKAnnotation {
         title = s.title
         msgType = s.msgType
         symbol = s.msgType.symbol
+        guard s.isActive else { tint = .systemGray; return }
         switch s.spatPhase {
         case .red: tint = .systemRed
         case .yellow: tint = .systemYellow

@@ -6,6 +6,7 @@ struct SettingsView: View {
     @AppStorage(Settings.ttlMinutes) private var ttl = 60
     @AppStorage(Settings.geiger) private var geiger = false
     @AppStorage(Settings.showTrack) private var showTrack = true
+    @AppStorage(Settings.hideInactive) private var hideInactive = false
     @AppStorage(Settings.mqttOn) private var mqttOn = false
     @AppStorage(Settings.mqttURL) private var mqttURL = Settings.defaultBroker
     @AppStorage(Settings.mqttUser) private var mqttUser = ""
@@ -18,10 +19,15 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Karte") {
+                Section {
                     Stepper("Marker-Lebensdauer: \(ttl) min", value: $ttl, in: 1...1440, step: ttl < 10 ? 1 : 5)
+                    Toggle("Inaktive Objekte ausblenden", isOn: $hideInactive)
                     Toggle("Eigene Spur anzeigen", isOn: $showTrack)
                     Button("Spur löschen") { model.location.clearTrack() }
+                } header: {
+                    Text("Karte")
+                } footer: {
+                    Text("Objekte, die gerade senden, pulsieren. Ohne Empfang seit 15 s werden sie grau (oder ausgeblendet) und verschwinden nach der Marker-Lebensdauer.")
                 }
                 Section {
                     Toggle("Geigerzähler-Modus", isOn: $geiger)

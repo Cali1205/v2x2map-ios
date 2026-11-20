@@ -13,6 +13,12 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
         manager.distanceFilter = 5
+        manager.activityType = .automotiveNavigation
+        // Keep tracking while the app is in the background (UIBackgroundModes: location);
+        // "while using" permission is enough because updates start in the foreground.
+        manager.allowsBackgroundLocationUpdates = true
+        manager.pausesLocationUpdatesAutomatically = false
+        manager.showsBackgroundLocationIndicator = true
         manager.requestWhenInUseAuthorization()
         manager.startUpdatingLocation()
     }

@@ -23,7 +23,8 @@ iPhone and in CarPlay.
 | Hazard banner for new DENMs within 2 km | – | ✅ |
 | List of nearby hazards and traffic lights | station list | ✅ |
 | Station list, expandable to the last 20 frames, distance, 🔒 signed / 🔓 unsigned | ✅ | |
-| Own track | ✅ | |
+| Own track, also recorded in the background | ✅ | |
+| Active stations pulse; silent for 15 s → grey (or hidden) | ✅ | grey |
 | "Geiger counter" mode (click/haptic per frame, alert on DENM) | ✅ | |
 | PCAP recording for Wireshark (Files app / share sheet) | ✅ | |
 | MQTT forwarding of raw frames (`its/<node>/packet`, `mqtts://`/`mqtt://`, optional login) | ✅ | shared |

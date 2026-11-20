@@ -120,6 +120,18 @@ struct StationMarker: View {
     let station: Station
 
     var body: some View {
+        // Re-evaluates isActive every 2 s without new frames arriving.
+        TimelineView(.periodic(from: .now, by: 2)) { _ in
+            let active = station.isActive
+            marker
+                .saturation(active ? 1 : 0)
+                .opacity(active ? 1 : 0.45)
+                .background { if active { PulseRing(color: fill) } }
+        }
+        .accessibilityLabel("\(station.msgType.label), \(station.title)\(station.isActive ? "" : ", inaktiv")")
+    }
+
+    private var marker: some View {
         ZStack {
             Circle().fill(fill).frame(width: 30, height: 30)
                 .overlay(Circle().stroke(.white, lineWidth: 2))
@@ -134,7 +146,6 @@ struct StationMarker: View {
                     .foregroundStyle(.white)
             }
         }
-        .accessibilityLabel("\(station.msgType.label), \(station.title)")
     }
 
     private var fill: Color {
@@ -144,5 +155,17 @@ struct StationMarker: View {
         case .green: .green
         default: station.msgType.color
         }
+    }
+}
+
+/// Expanding ring behind stations that are still sending.
+struct PulseRing: View {
+    let color: Color
+
+    var body: some View {
+        Circle().stroke(color, lineWidth: 3).frame(width: 30, height: 30)
+            .phaseAnimator([false, true]) { v, on in
+                v.scaleEffect(on ? 1.9 : 1).opacity(on ? 0 : 0.8)
+            } animation: { on in on ? .easeOut(duration: 1.4) : nil }
     }
 }
