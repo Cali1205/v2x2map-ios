@@ -25,6 +25,7 @@ iPhone and in CarPlay.
 | Station list, expandable to the last 20 frames, distance, 🔒 signed / 🔓 unsigned | ✅ | |
 | Own track, also recorded in the background | ✅ | |
 | Active stations pulse; silent for 15 s → grey (or hidden) | ✅ | grey |
+| Vehicle state from CAM: turn signals, braking / emergency braking, accelerating, ACC / cruise control / limiter, high beam, fog, reverse | ✅ | braking + text |
 | "Geiger counter" mode (click/haptic per frame, alert on DENM) | ✅ | |
 | PCAP recording for Wireshark (Files app / share sheet) | ✅ | |
 | MQTT forwarding of raw frames (`its/<node>/packet`, `mqtts://`/`mqtt://`, optional login) | ✅ | shared |

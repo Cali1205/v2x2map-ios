@@ -123,10 +123,22 @@ struct StationMarker: View {
         // Re-evaluates isActive every 2 s without new frames arriving.
         TimelineView(.periodic(from: .now, by: 2)) { _ in
             let active = station.isActive
+            // Extras are overlays so the circle stays centred on the vehicle's position.
             marker
-                .saturation(active ? 1 : 0)
-                .opacity(active ? 1 : 0.45)
-                .background { if active { PulseRing(color: fill) } }
+                .overlay {
+                    if active, station.braking {
+                        Circle().stroke(.red, lineWidth: 4).frame(width: 34, height: 34)
+                            .shadow(color: .red, radius: station.emergencyBraking ? 8 : 4)
+                    }
+                }
+                .overlay(alignment: .leading) { BlinkerArrow(left: true, on: active && station.blinkLeft).offset(x: -15) }
+                .overlay(alignment: .trailing) { BlinkerArrow(left: false, on: active && station.blinkRight).offset(x: 15) }
+                .overlay(alignment: .bottom) {
+                    if active { VehicleBadges(station: station).fixedSize().offset(y: 20) }
+                }
+            .saturation(active ? 1 : 0)
+            .opacity(active ? 1 : 0.45)
+            .background { if active { PulseRing(color: fill) } }
         }
         .accessibilityLabel("\(station.msgType.label), \(station.title)\(station.isActive ? "" : ", inaktiv")")
     }
@@ -167,5 +179,64 @@ struct PulseRing: View {
             .phaseAnimator([false, true]) { v, on in
                 v.scaleEffect(on ? 1.9 : 1).opacity(on ? 0 : 0.8)
             } animation: { on in on ? .easeOut(duration: 1.4) : nil }
+    }
+}
+
+/// Orange turn-signal triangle next to the marker, flashing at ~1.5 Hz like a real indicator.
+struct BlinkerArrow: View {
+    let left: Bool
+    let on: Bool
+
+    var body: some View {
+        Image(systemName: left ? "arrowtriangle.left.fill" : "arrowtriangle.right.fill")
+            .font(.system(size: 12, weight: .bold))
+            .foregroundStyle(.orange)
+            .shadow(color: .orange, radius: 3)
+            .opacity(on ? 1 : 0)
+            .phaseAnimator(on ? [1.0, 0.15] : [1.0]) { v, o in v.opacity(o) } animation: { _ in .linear(duration: 0.33) }
+            .id(on)  // restart the flashing cycle when the indicator switches
+    }
+}
+
+/// Small capsule below a vehicle: accelerating, assistance systems and notable lights.
+struct VehicleBadges: View {
+    let station: Station
+
+    var body: some View {
+        let icons = items
+        if !icons.isEmpty {
+            HStack(spacing: 3) {
+                ForEach(icons, id: \.self) { i in
+                    if i.count <= 3, !i.contains(".") {
+                        Text(i).font(.system(size: 9, weight: .heavy))
+                    } else {
+                        Image(systemName: i).font(.system(size: 10, weight: .bold))
+                    }
+                }
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(.black.opacity(0.65), in: Capsule())
+        }
+    }
+
+    /// SF Symbol names, or short text labels (≤ 3 chars).
+    private var items: [String] {
+        guard let c = station.cam else { return [] }
+        var i: [String] = []
+        if station.accelerating { i.append("arrow.up.circle.fill") }
+        if let k = c.control {
+            if k.contains(.collisionWarning) { i.append("exclamationmark.triangle.fill") }
+            if k.contains(.acc) { i.append("ACC") }
+            if k.contains(.cruiseControl) { i.append("CC") }
+            if k.contains(.speedLimiter) { i.append("LIM") }
+        }
+        if let l = c.lights {
+            if l.contains(.highBeam) { i.append("headlight.high.beam.fill") }
+            if l.contains(.fog) { i.append("headlight.fog.fill") }
+            if l.contains(.reverse) { i.append("R") }
+        }
+        return i
     }
 }

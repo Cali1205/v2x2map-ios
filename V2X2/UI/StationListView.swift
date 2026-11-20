@@ -43,6 +43,9 @@ private struct StationRow: View {
                     if let sec = station.secured { Text(sec ? "🔒" : "🔓").font(.caption) }
                     Text(station.title).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                 }
+                if !station.statusText.isEmpty {
+                    Text(station.statusText).font(.caption).foregroundStyle(station.braking ? Color.red : Color.primary)
+                }
                 Text("\(station.idHex) · \(station.count)× · \(station.lastSeen.formatted(date: .omitted, time: .standard))")
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)

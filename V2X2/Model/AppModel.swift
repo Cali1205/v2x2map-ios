@@ -14,6 +14,7 @@ struct Station: Identifiable {
     var secured: Bool?
     var spatPhase: SpatTemParser.Phase?
     var denmCause: DenmParser.Cause?
+    var cam: CamParser.State?
     var lastSeen: Date
     var count = 0
     var recent: [Frame] = []  // newest first, max 20 (like the Android log)
@@ -21,6 +22,39 @@ struct Station: Identifiable {
     /// Still sending: heard within the last few seconds (CAMs come at 1–10 Hz, the receiver
     /// alternates radio and Bluetooth, so allow some gaps).
     var isActive: Bool { Date().timeIntervalSince(lastSeen) < 15 }
+
+    // Vehicle state from CAMs. Thresholds: ~0.1 g counts as clearly braking/accelerating.
+    var braking: Bool { cam?.control?.contains(.brakePedal) == true || (cam?.longAccel ?? 0) <= -1.0 }
+    var emergencyBraking: Bool { cam?.control?.contains(.emergencyBrake) == true || (cam?.longAccel ?? 0) <= -4.0 }
+    var accelerating: Bool { !braking && (cam?.longAccel ?? 0) >= 1.0 }
+    var blinkLeft: Bool { cam?.lights?.contains(.leftTurn) == true }
+    var blinkRight: Bool { cam?.lights?.contains(.rightTurn) == true }
+
+    /// Short German status line, e.g. "bremst · Blinker links · ACC · Fernlicht".
+    var statusText: String {
+        guard let c = cam else { return "" }
+        var t: [String] = []
+        if emergencyBraking { t.append("Notbremsung") } else if braking { t.append("bremst") } else if accelerating { t.append("beschleunigt") }
+        if let a = c.longAccel, abs(a) >= 0.3 { t.append(String(format: "%+.1f m/s²", a)) }
+        switch (blinkLeft, blinkRight) {
+        case (true, true): t.append("Warnblinker")
+        case (true, false): t.append("Blinker links")
+        case (false, true): t.append("Blinker rechts")
+        default: break
+        }
+        if let k = c.control {
+            if k.contains(.collisionWarning) { t.append("Kollisionswarnung") }
+            if k.contains(.acc) { t.append("ACC") }
+            if k.contains(.cruiseControl) { t.append("Tempomat") }
+            if k.contains(.speedLimiter) { t.append("Limiter") }
+        }
+        if let l = c.lights {
+            if l.contains(.highBeam) { t.append("Fernlicht") }
+            if l.contains(.fog) { t.append("Nebellicht") }
+            if l.contains(.reverse) { t.append("Rückfahrlicht") }
+        }
+        return t.joined(separator: " · ")
+    }
 
     var idHex: String { String(format: "%012llX", id & 0xFFFF_FFFF_FFFF) }
 
@@ -110,6 +144,13 @@ final class AppModel {
         if let v = d.secured { s.secured = v }
         if let v = d.spatPhase, v != .unknown { s.spatPhase = v }
         if let v = d.denmCause { s.denmCause = v }
+        if let c = d.cam {
+            // Lights only come in low-frequency CAMs and the control bits are optional: keep the last known.
+            var m = c
+            m.control = c.control ?? s.cam?.control
+            m.lights = c.lights ?? s.cam?.lights
+            s.cam = m
+        }
         stations[id] = s
 
         Geiger.tick(hazard: d.msgType == .denm)

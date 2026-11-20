@@ -21,6 +21,7 @@ enum ItsG5Decoder {
         var btpDstPort: Int?
         var spatPhase: SpatTemParser.Phase?
         var denmCause: DenmParser.Cause?
+        var cam: CamParser.State?
         var secured: Bool?
     }
 
@@ -98,6 +99,7 @@ enum ItsG5Decoder {
                 btpDstPort: dstPort,
                 spatPhase: msgType == .spatem ? SpatTemParser.extractPhase(p, btpOff: btpOff) : nil,
                 denmCause: msgType == .denm ? DenmParser.extractCause(p, btpOff: btpOff) : nil,
+                cam: msgType == .cam ? CamParser.parse(p, btpOff: btpOff) : nil,
                 secured: secured
             )
         }

@@ -146,6 +146,7 @@ final class CarMapViewController: UIViewController, MKMapViewDelegate {
 final class StationAnnotation: NSObject, MKAnnotation {
     @objc dynamic var coordinate: CLLocationCoordinate2D
     var title: String?
+    var subtitle: String?
     var msgType: MsgType
     var tint: UIColor = .gray
     var symbol: String = "circle"
@@ -160,9 +161,11 @@ final class StationAnnotation: NSObject, MKAnnotation {
     func update(_ s: Station, _ c: CLLocationCoordinate2D) {
         coordinate = c
         title = s.title
+        subtitle = s.statusText.isEmpty ? nil : s.statusText
         msgType = s.msgType
         symbol = s.msgType.symbol
         guard s.isActive else { tint = .systemGray; return }
+        if s.braking { tint = .systemRed; symbol = "exclamationmark.octagon.fill"; return }
         switch s.spatPhase {
         case .red: tint = .systemRed
         case .yellow: tint = .systemYellow

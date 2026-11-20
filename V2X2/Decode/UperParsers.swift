@@ -132,3 +132,77 @@ enum DenmParser {
     private static let subBreakdown: [Int: String] = [0: "", 1: "(ohne Gefahr)", 2: "(Panne m. Feuer)", 3: "(Flüssigkeit)", 4: "(Gefahrgut)", 5: "(Unbekannt)"]
     private static let subStationary: [Int: String] = [0: "", 1: "(m. Gefahren)", 2: "(Pannenhilfe)", 3: "(Fahrzeugpanne)", 4: "(Unfall)", 5: "(Gefährl. Fahrzeug)"]
 }
+
+/// CAM (EN 302 637-2 v1.4, CDD v1.3): vehicle state from the basic-vehicle high/low-frequency containers.
+enum CamParser {
+    struct State: Equatable {
+        var speedMps: Double?
+        var headingDeg: Double?
+        var longAccel: Double?          // m/s², negative = braking
+        var control: Control?           // only if the sender includes accelerationControl
+        var lights: Lights?             // only in low-frequency CAMs (every ~500 ms)
+    }
+
+    /// AccelerationControl BIT STRING, bit 0 first.
+    struct Control: OptionSet, Equatable {
+        let rawValue: Int
+        static let brakePedal = Control(rawValue: 1 << 6)
+        static let gasPedal = Control(rawValue: 1 << 5)
+        static let emergencyBrake = Control(rawValue: 1 << 4)
+        static let collisionWarning = Control(rawValue: 1 << 3)
+        static let acc = Control(rawValue: 1 << 2)
+        static let cruiseControl = Control(rawValue: 1 << 1)
+        static let speedLimiter = Control(rawValue: 1 << 0)
+    }
+
+    /// ExteriorLights BIT STRING, bit 0 first.
+    struct Lights: OptionSet, Equatable {
+        let rawValue: Int
+        static let lowBeam = Lights(rawValue: 1 << 7)
+        static let highBeam = Lights(rawValue: 1 << 6)
+        static let leftTurn = Lights(rawValue: 1 << 5)
+        static let rightTurn = Lights(rawValue: 1 << 4)
+        static let daytime = Lights(rawValue: 1 << 3)
+        static let reverse = Lights(rawValue: 1 << 2)
+        static let fog = Lights(rawValue: 1 << 1)
+        static let parking = Lights(rawValue: 1 << 0)
+    }
+
+    static func parse(_ p: [UInt8], btpOff: Int) -> State? {
+        let its = btpOff + 4
+        guard its + 6 <= p.count, (1...2).contains(p[its]), p[its + 1] == 2 else { return nil }
+        var b = BitReader(p, startByte: its + 6)
+        b.skip(16)                                      // generationDeltaTime
+        b.skip(1)                                       // CamParameters extension marker
+        let lfPresent = b.bit()
+        b.skip(1)                                       // specialVehicleContainer present
+        b.skip(1 + 8 + 123)                             // BasicContainer: ext, stationType, referencePosition
+        guard b.bit() == 0, b.bit() == 0 else { return nil }  // HF choice: not extended, basicVehicle (not RSU)
+        let accCtl = b.bit(), lane = b.bit(), steer = b.bit(), latAcc = b.bit(), vertAcc = b.bit(), perf = b.bit(), toll = b.bit()
+
+        var s = State()
+        let heading = b.bits(12); b.skip(7)
+        let speed = b.bits(14); b.skip(7)
+        if heading <= 3600 { s.headingDeg = Double(heading) / 10 }
+        if speed < 16383 { s.speedMps = Double(speed) / 100 }
+        b.skip(2)                                       // driveDirection
+        b.skip(10 + 3)                                  // vehicleLength
+        b.skip(6)                                       // vehicleWidth
+        let acc = b.bits(9) - 160; b.skip(7)
+        if acc != 161 { s.longAccel = Double(acc) / 10 }
+        b.skip(11 + 3)                                  // curvature
+        b.skip(1 + 2)                                   // curvatureCalculationMode (extensible enum)
+        b.skip(16 + 4)                                  // yawRate
+        if accCtl == 1 { s.control = Control(rawValue: b.bits(7)) }
+        guard lfPresent == 1, toll == 0 else { return s }
+        if lane == 1 { b.skip(4) }
+        if steer == 1 { b.skip(10 + 7) }
+        if latAcc == 1 { b.skip(9 + 7) }
+        if vertAcc == 1 { b.skip(9 + 7) }
+        if perf == 1 { b.skip(3) }
+        guard b.bit() == 0 else { return s }            // LF choice extension
+        b.skip(4)                                       // vehicleRole
+        s.lights = Lights(rawValue: b.bits(8))
+        return s
+    }
+}
