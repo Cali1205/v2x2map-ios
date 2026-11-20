@@ -95,9 +95,12 @@ enum DenmParser {
         let its = btpOff + 4
         guard its + 6 <= p.count, p[its] == 2, p[its + 1] == 1 else { return nil }
         var b = BitReader(p, startByte: its + 6)
-        b.bit()
+        // DENM body (no extension marker): situation, location, alacarte present.
         let sitPresent = b.bit()
-        b.skip(2)                                      // location, alacarte present
+        b.skip(2)
+        // ManagementContainer: extension marker, then 5 optional-field flags.
+        // Extension additions would follow stationType and shift everything after it.
+        guard b.bit() == 0 else { return nil }
         let term = b.bit(), relDist = b.bit(), relDir = b.bit(), valDur = b.bit(), transInt = b.bit()
         b.skip(48)                                     // ActionID
         b.skip(84)                                     // detectionTime + referenceTime
@@ -109,10 +112,9 @@ enum DenmParser {
         if transInt == 1 { b.skip(14) }
         b.skip(8)                                      // stationType
         guard sitPresent == 1 else { return nil }
-        b.bit()
-        let infoQ = b.bit()
-        b.skip(2)
-        if infoQ == 1 { b.skip(3) }
+        // SituationContainer: ext marker, linkedCause + eventHistory present, informationQuality (3),
+        // then CauseCode: ext marker, causeCode (8), subCauseCode (8).
+        b.skip(1 + 2 + 3 + 1)
         return Cause(causeCode: b.bits(8), subCauseCode: b.bits(8))
     }
 
