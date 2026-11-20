@@ -18,10 +18,10 @@ iPhone and in CarPlay.
 | | iPhone | CarPlay |
 |---|---|---|
 | BLE connection to `ITS-G5-RX`, auto-reconnect (also in background) | ✅ | shared |
-| Map markers per station: colour by message type, traffic-light phase red/yellow/green, vehicle heading + speed | ✅ | ✅ |
-| Follow / heading-up mode | ✅ | ✅ |
-| Hazard banner for new DENMs within 2 km | – | ✅ |
-| List of nearby hazards and traffic lights | station list | ✅ |
+| Map markers per station: colour by message type, traffic-light phase red/yellow/green, vehicle heading + speed | ✅ | 12 nearest as pins on Apple's map |
+| Follow / heading-up mode | ✅ | – |
+| Alert for new DENMs within 2 km | – | ✅ |
+| List of nearby hazards, traffic lights and vehicles by distance | station list | ✅ |
 | Station list, expandable to the last 20 frames, distance, 🔒 signed / 🔓 unsigned | ✅ | |
 | Own track, also recorded in the background | ✅ | |
 | Active stations pulse; silent for 15 s → grey (or hidden) | ✅ | grey |
@@ -72,11 +72,12 @@ Every push and pull request only builds and runs the unit tests on the simulator
 
 ## CarPlay
 
-Drawing a custom map in CarPlay requires the **CarPlay Navigation entitlement**
-(`com.apple.developer.carplay-maps`), which Apple grants on request:
+The app uses the **CarPlay Driving Task entitlement** (`com.apple.developer.carplay-driving-task`),
+which Apple grants on request. (The Navigation category is only for apps with turn-by-turn route
+guidance, so a custom-drawn map is not an option.)
 
-1. Request it at <https://developer.apple.com/contact/carplay/> (category *Navigation*).
-2. Once granted, enable *CarPlay Navigation* for your App ID under
+1. Request it at <https://developer.apple.com/contact/carplay/> (category *Driving Task*).
+2. Once granted, enable *CarPlay Driving Task* for your App ID under
    *Certificates, Identifiers & Profiles → Identifiers → Additional Capabilities*.
 3. Run the workflow with **CarPlay ✅**. It signs with `V2X2/CarPlay.entitlements`.
    (Before Apple has granted it, this option makes signing fail.)
@@ -84,8 +85,9 @@ Drawing a custom map in CarPlay requires the **CarPlay Navigation entitlement**
 The CarPlay scene (`V2X2/CarPlay/CarPlaySceneDelegate.swift`) is always compiled. Without the
 entitlement the app just doesn't appear in CarPlay.
 
-In the car: full-screen map following the vehicle, zoom and re-center buttons, an *Meldungen*
-(alerts) list of hazards and traffic lights sorted by distance, and an 8-second banner for new hazard warnings.
+In the car, two tabs: *In der Nähe*, Apple's point-of-interest map with the 12 most relevant stations
+(hazards, traffic lights, braking vehicles, other active vehicles; nearest first), and *Meldungen*, the same as
+a list with distance and vehicle state. New hazard warnings pop up as an alert that closes after 8 seconds.
 
 ## Project layout
 
@@ -96,7 +98,7 @@ V2X2/Decode/                    ITS5 wire-format reader, 802.11p/GeoNetworking/B
                                 → ports of the Android Kotlin decoders; keep them in sync
 V2X2/Model/                     shared state for iPhone + CarPlay, location/track, PCAP writer
 V2X2/UI/                        SwiftUI map, station list, settings
-V2X2/CarPlay/                   CPMapTemplate + MKMapView in the CarPlay window
+V2X2/CarPlay/                   Driving Task scene: point-of-interest map, list, hazard alerts
 Tests/                          decoder and wire-format tests (run in CI)
 scripts/redact.sh               strips names/e-mails from signing logs (Actions logs are public)
 ```
