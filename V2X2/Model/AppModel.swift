@@ -127,11 +127,16 @@ final class AppModel {
             .distance(from: CLLocation(latitude: c.latitude, longitude: c.longitude))
     }
 
-    func toggleRecording() {
-        if recorder.isRecording { return recorder.stop() }
+    func startRecording() {
+        guard !recorder.isRecording else { return }
         // Start the track with the current fix if it is fresh, so the replay has a position right away.
         let fresh = location.last.flatMap { Date().timeIntervalSince($0.timestamp) < 30 ? $0 : nil }
         recorder.start(at: fresh)
+    }
+
+    func toggleRecording() {
+        if recorder.isRecording { return recorder.stop() }
+        startRecording()
     }
 
     func writeReceiverConfig(_ v: [Int]) { receiver.writeConfig(v) }
@@ -217,6 +222,7 @@ enum Settings {
     static let hideInactive = "hide_inactive"
     static let hideOwnVehicle = "hide_own_vehicle"
     static let buttonLabels = "button_labels"
+    static let autoRecord = "auto_record"
     static let mqttOn = "mqtt_on"
     static let mqttURL = "mqtt_url"
     static let mqttUser = "mqtt_user"

@@ -9,6 +9,7 @@ struct SettingsView: View {
     @AppStorage(Settings.hideInactive) private var hideInactive = false
     @AppStorage(Settings.hideOwnVehicle) private var hideOwnVehicle = false
     @AppStorage(Settings.buttonLabels) private var buttonLabels = true
+    @AppStorage(Settings.autoRecord) private var autoRecord = false
     @AppStorage(Settings.mqttOn) private var mqttOn = false
     @AppStorage(Settings.mqttURL) private var mqttURL = Settings.defaultBroker
     @AppStorage(Settings.mqttUser) private var mqttUser = ""
@@ -45,7 +46,8 @@ struct SettingsView: View {
                 } footer: {
                     Text("Klick + Vibration pro Frame, Warnton bei Gefahrenmeldung (DENM).")
                 }
-                Section("Aufnahme & Wiedergabe") {
+                Section {
+                    Toggle("Immer automatisch aufzeichnen", isOn: $autoRecord)
                     Button {
                         showRecordings = true
                     } label: {
@@ -53,10 +55,11 @@ struct SettingsView: View {
                     }
                     if let f = model.recorder.lastFile {
                         ShareLink(item: f) { Label("Letzte: \(f.lastPathComponent)", systemImage: "square.and.arrow.up") }
-                    } else {
-                        Text("PCAP-Dateien und GPS-Spuren liegen auch in der Dateien-App.")
-                            .foregroundStyle(.secondary)
                     }
+                } header: {
+                    Text("Aufnahme & Wiedergabe")
+                } footer: {
+                    Text("Startet die PCAP- und GPS-Aufzeichnung direkt beim App-Start. Wenn deaktiviert, wird beim Start gefragt. Dateien liegen auch in der Dateien-App.")
                 }
                 Section {
                     Toggle("An MQTT-Broker senden", isOn: $mqttOn)
