@@ -7,6 +7,7 @@ struct SettingsView: View {
     @AppStorage(Settings.geiger) private var geiger = false
     @AppStorage(Settings.showTrack) private var showTrack = true
     @AppStorage(Settings.hideInactive) private var hideInactive = false
+    @AppStorage(Settings.hideOwnVehicle) private var hideOwnVehicle = false
     @AppStorage(Settings.buttonLabels) private var buttonLabels = true
     @AppStorage(Settings.mqttOn) private var mqttOn = false
     @AppStorage(Settings.mqttURL) private var mqttURL = Settings.defaultBroker
@@ -24,13 +25,20 @@ struct SettingsView: View {
                 Section {
                     Stepper("Marker-Lebensdauer: \(ttl) min", value: $ttl, in: 1...1440, step: ttl < 10 ? 1 : 5)
                     Toggle("Inaktive Objekte ausblenden", isOn: $hideInactive)
+                    Toggle("Eigenes Fahrzeug ausblenden", isOn: $hideOwnVehicle)
+                    if let egoId = model.ego.egoId, let s = model.stations[egoId] {
+                        LabeledContent("Erkanntes Fahrzeug") {
+                            Text("\(s.idHex)\(model.ego.pseudonymSwitches > 0 ? " (\(model.ego.pseudonymSwitches)× gewechselt)" : "")")
+                                .font(.caption.monospaced())
+                        }
+                    }
                     Toggle("Button-Beschriftung anzeigen", isOn: $buttonLabels)
                     Toggle("Eigene Spur anzeigen", isOn: $showTrack)
                     Button("Spur löschen") { model.location.clearTrack() }
                 } header: {
                     Text("Karte")
                 } footer: {
-                    Text("Objekte, die gerade senden, pulsieren. Ohne Empfang seit 15 s werden sie grau (oder ausgeblendet) und verschwinden nach der Marker-Lebensdauer.")
+                    Text("Objekte, die gerade senden, pulsieren. Ohne Empfang seit 15 s werden sie grau (oder ausgeblendet) und verschwinden nach der Marker-Lebensdauer. Das eigene Fahrzeug wird anhand der Bewegung erkannt und bei ID-Wechsel übernommen.")
                 }
                 Section {
                     Toggle("Geigerzähler-Modus", isOn: $geiger)

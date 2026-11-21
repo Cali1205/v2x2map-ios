@@ -10,7 +10,9 @@ struct StationListView: View {
                 DisclosureGroup {
                     ForEach(s.recent) { f in FrameRow(frame: f) }
                 } label: {
-                    StationRow(station: s, distance: s.coordinate.flatMap { model.distance(to: $0) })
+                    StationRow(station: s,
+                               distance: s.coordinate.flatMap { model.distance(to: $0) },
+                               ownRole: ownRole(for: s.id))
                 }
             }
             .overlay {
@@ -26,20 +28,37 @@ struct StationListView: View {
             }
         }
     }
+
+    private func ownRole(for id: UInt64) -> StationRow.OwnRole? {
+        if model.ego.egoId == id { return .current }
+        if model.ego.isSupersededOwnVehicle(id) { return .past }
+        return nil
+    }
 }
 
 private struct StationRow: View {
+    enum OwnRole { case current, past }
+
     let station: Station
     let distance: Double?
+    let ownRole: OwnRole?
 
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: station.msgType.symbol)
-                .foregroundStyle(station.msgType.color)
+                .foregroundStyle(ownRole == .current ? Color.teal : station.msgType.color)
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(station.msgType.rawValue).font(.headline)
+                    if let ownRole {
+                        Text(ownRole == .current ? "ICH" : "ICH (alt)")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1)
+                            .background(ownRole == .current ? Color.teal : Color.secondary, in: Capsule())
+                    }
                     if let sec = station.secured { Text(sec ? "🔒" : "🔓").font(.caption) }
                     Text(station.title).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                 }

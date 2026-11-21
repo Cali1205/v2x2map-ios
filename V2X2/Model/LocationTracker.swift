@@ -23,8 +23,15 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
         manager.startUpdatingLocation()
     }
 
+    @ObservationIgnored private var recentFixes: [OwnFix] = []
+
     func distance(to c: CLLocationCoordinate2D) -> CLLocationDistance? {
         last?.distance(from: CLLocation(latitude: c.latitude, longitude: c.longitude))
+    }
+
+    func ownFix(at time: Date) -> OwnFix? {
+        guard let base = recentFixes.last(where: { $0.time <= time }) ?? recentFixes.last else { return nil }
+        return base.projected(to: time)
     }
 
     func clearTrack() { track.removeAll() }
@@ -34,6 +41,14 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
         last = l
         track.append(l.coordinate)
         if track.count > 10_000 { track.removeFirst(1_000) }
+        recentFixes.append(OwnFix(
+            time: l.timestamp,
+            coordinate: l.coordinate,
+            speedMps: l.speed >= 0 ? l.speed : nil,
+            courseDeg: l.course >= 0 ? l.course : nil,
+            accuracyM: l.horizontalAccuracy
+        ))
+        if recentFixes.count > 60 { recentFixes.removeFirst(recentFixes.count - 60) }
         onLocation?(l)
     }
 

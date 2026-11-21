@@ -33,7 +33,7 @@ struct ContentView: View {
             }
             ForEach(model.mapStations) { s in
                 Annotation(s.title, coordinate: s.coordinate!) {
-                    StationMarker(station: s)
+                    StationMarker(station: s, isOwn: model.ego.egoId == s.id)
                 }
             }
         }
@@ -350,6 +350,7 @@ struct ReplayCarMarker: View {
 
 struct StationMarker: View {
     let station: Station
+    var isOwn = false
 
     var body: some View {
         // Re-evaluates isActive every 1 s without new frames arriving.
@@ -363,6 +364,18 @@ struct StationMarker: View {
                             .shadow(color: .red, radius: station.emergencyBraking ? 8 : 4)
                     }
                 }
+                .overlay(alignment: .top) {
+                    if isOwn {
+                        Text("ICH")
+                            .font(.system(size: 9, weight: .heavy))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(.teal, in: Capsule())
+                            .fixedSize()
+                            .offset(y: -15)
+                    }
+                }
                 .overlay(alignment: .leading) { BlinkerArrow(left: true, on: active && station.blinkLeft).offset(x: -15) }
                 .overlay(alignment: .trailing) { BlinkerArrow(left: false, on: active && station.blinkRight).offset(x: 15) }
                 .overlay(alignment: .bottom) {
@@ -372,7 +385,7 @@ struct StationMarker: View {
             .opacity(active ? 1 : 0.45)
             .background { if active { PulseRing(color: fill) } }
         }
-        .accessibilityLabel("\(station.msgType.label), \(station.title)\(station.isActive ? "" : ", inaktiv")")
+        .accessibilityLabel("\(isOwn ? "Eigenes Fahrzeug, " : "")\(station.msgType.label), \(station.title)\(station.isActive ? "" : ", inaktiv")")
     }
 
     private var marker: some View {
@@ -393,11 +406,12 @@ struct StationMarker: View {
     }
 
     private var fill: Color {
+        if isOwn { return .teal }
         switch station.spatPhase {
-        case .red: .red
-        case .yellow: .yellow
-        case .green: .green
-        default: station.msgType.color
+        case .red: return .red
+        case .yellow: return .yellow
+        case .green: return .green
+        default: return station.msgType.color
         }
     }
 }

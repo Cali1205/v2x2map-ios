@@ -26,6 +26,7 @@ iPhone and in CarPlay.
 | Own track, also recorded in the background | ✅ | |
 | Active stations pulse; silent for 15 s → grey (or hidden) | ✅ | grey |
 | Vehicle state from CAM: turn signals, braking / emergency braking, accelerating, ACC / cruise control / limiter, high beam, fog, reverse | ✅ | braking + text |
+| Own-vehicle detection (`ICH` badge, tracks ITS-G5 pseudonym ID changes, excluded from CarPlay) | ✅ | excluded |
 | "Geiger counter" mode (click/haptic per frame, alert on DENM) | ✅ | |
 | PCAP recording for Wireshark (Files app / share sheet) + GPS track | ✅ | |
 | Drive replay with timeline scrubbing, speed (1×–32×) and Wireshark PCAP import | ✅ | |

@@ -293,4 +293,50 @@ final class Replayer {
         while i + 1 < r.track.count, r.track[i + 1].time <= t { i += 1 }
         if i != trackIndex { trackIndex = i }
     }
+
+    /// Interpolated recorded position at `time` (O(log n) lookup for fast seek rebuilds).
+    func ownFix(at time: Date) -> OwnFix? {
+        guard let t = recording?.track, !t.isEmpty else { return nil }
+        var lo = 0, hi = t.count
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            if t[mid].time <= time { lo = mid + 1 } else { hi = mid }
+        }
+        let prevIdx = lo - 1
+        let nextIdx = lo < t.count ? lo : nil
+
+        if prevIdx >= 0, let ni = nextIdx {
+            let a = t[prevIdx], b = t[ni]
+            let span = b.time.timeIntervalSince(a.time)
+            if span > 0, span <= 15 {
+                let u = time.timeIntervalSince(a.time) / span
+                let coord = CLLocationCoordinate2D(
+                    latitude: a.coordinate.latitude + (b.coordinate.latitude - a.coordinate.latitude) * u,
+                    longitude: a.coordinate.longitude + (b.coordinate.longitude - a.coordinate.longitude) * u
+                )
+                let speed = a.speedMps.flatMap { s1 in b.speedMps.map { s1 + ($0 - s1) * u } } ?? a.speedMps
+                let course: Double?
+                if let c1 = a.courseDeg, let c2 = b.courseDeg {
+                    var delta = (c2 - c1).truncatingRemainder(dividingBy: 360.0)
+                    if delta > 180 { delta -= 360 } else if delta < -180 { delta += 360 }
+                    course = (c1 + delta * u + 360).truncatingRemainder(dividingBy: 360.0)
+                } else {
+                    course = a.courseDeg ?? b.courseDeg
+                }
+                return OwnFix(time: time, coordinate: coord, speedMps: speed, courseDeg: course, accuracyM: nil)
+            }
+        }
+        if prevIdx >= 0 {
+            let a = t[prevIdx]
+            return OwnFix(time: a.time, coordinate: a.coordinate, speedMps: a.speedMps, courseDeg: a.courseDeg, accuracyM: nil)
+                .projected(to: time)
+        }
+        if let ni = nextIdx {
+            let b = t[ni]
+            if b.time.timeIntervalSince(time) <= 5 {
+                return OwnFix(time: b.time, coordinate: b.coordinate, speedMps: b.speedMps, courseDeg: b.courseDeg, accuracyM: nil)
+            }
+        }
+        return nil
+    }
 }

@@ -80,6 +80,7 @@ final class AppModel {
     let recorder = PcapRecorder()
     let mqtt = MqttClient()
     let replay = Replayer()
+    let ego = EgoDetector()
 
     @ObservationIgnored private let receiver = Receiver()
     @ObservationIgnored private var reader = FrameReader()
@@ -109,7 +110,13 @@ final class AppModel {
     var mapStations: [Station] {
         let cutoff = Clock.now.addingTimeInterval(-markerTTL)
         let hideInactive = UserDefaults.standard.bool(forKey: Settings.hideInactive)
-        return stations.values.filter { $0.coordinate != nil && $0.lastSeen >= cutoff && (!hideInactive || $0.isActive) }
+        let hideOwn = UserDefaults.standard.bool(forKey: Settings.hideOwnVehicle)
+        return stations.values.filter { s in
+            guard s.coordinate != nil, s.lastSeen >= cutoff else { return false }
+            if ego.isSupersededOwnVehicle(s.id) { return false }
+            if hideOwn && s.id == ego.egoId { return false }
+            return !hideInactive || s.isActive
+        }
     }
 
     /// Distance from the own position: the recorded one during a replay, else the live GPS.
@@ -129,7 +136,7 @@ final class AppModel {
 
     func writeReceiverConfig(_ v: [Int]) { receiver.writeConfig(v) }
     func forgetReceiver() { receiver.forget() }
-    func clear() { stations.removeAll() }
+    func clear() { stations.removeAll(); ego.reset() }
 
     /// Applies the MQTT settings; call after they change. Node ID defaults to the receiver MAC.
     func syncMqtt() {
@@ -181,12 +188,16 @@ final class AppModel {
         }
         stations[id] = s
 
+        let own = replay.isActive ? replay.ownFix(at: f.received) : location.ownFix(at: f.received)
+        ego.observe(frame: f, stationId: id, own: own)
+
         if !quiet { Geiger.tick(hazard: d.msgType == .denm) }
     }
 
     /// Replay start / seek / stop: the map starts from scratch.
     private func resetStations() {
         stations.removeAll()
+        ego.reset()
         totalFrames = 0
         itsFrames = 0
     }
@@ -194,6 +205,7 @@ final class AppModel {
     private func prune() {
         let cutoff = Clock.now.addingTimeInterval(-markerTTL)
         stations = stations.filter { $0.value.lastSeen >= cutoff }
+        ego.prune(now: Clock.now)
     }
 }
 
@@ -203,6 +215,7 @@ enum Settings {
     static let showTrack = "show_track"
     static let mapStyle = "map_style"
     static let hideInactive = "hide_inactive"
+    static let hideOwnVehicle = "hide_own_vehicle"
     static let buttonLabels = "button_labels"
     static let mqttOn = "mqtt_on"
     static let mqttURL = "mqtt_url"
