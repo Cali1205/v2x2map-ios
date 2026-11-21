@@ -7,8 +7,10 @@ import UIKit
 struct Station: Identifiable {
     let id: UInt64
     var msgType: MsgType
+    var msgTypes: Set<MsgType> = []
     var stationType: Int?
     var coordinate: CLLocationCoordinate2D?
+    var altitudeM: Double?
     var headingDeg: Double?
     var speedMps: Double?
     var secured: Bool?
@@ -29,11 +31,39 @@ struct Station: Identifiable {
     var accelerating: Bool { !braking && (cam?.longAccel ?? 0) >= 1.0 }
     var blinkLeft: Bool { cam?.lights?.contains(.leftTurn) == true }
     var blinkRight: Bool { cam?.lights?.contains(.rightTurn) == true }
+    var hasLightBar: Bool { cam?.lightBar == true }
+    var hasSiren: Bool { cam?.siren == true }
+    var isEmergency: Bool {
+        hasLightBar || hasSiren || stationType == 10 || cam?.vehicleRole == .emergency || cam?.vehicleRole == .rescue
+    }
+
+    var stationClassLabel: String { StationClass.label(for: stationType) }
+
+    var symbol: String {
+        if msgType == .cam, let sym = StationClass.symbol(for: stationType) { return sym }
+        return msgType.symbol
+    }
+
+    /// Estimated receive frequency in Hz across the buffered recent frames.
+    var updateRateHz: Double? {
+        guard recent.count >= 2,
+              let newest = recent.first?.received,
+              let oldest = recent.last?.received else { return nil }
+        let dt = newest.timeIntervalSince(oldest)
+        guard dt >= 0.2 else { return nil }
+        return Double(recent.count - 1) / dt
+    }
+
+    var sortedMsgTypes: [MsgType] {
+        let types = msgTypes.isEmpty ? [msgType] : Array(msgTypes)
+        return types.sorted { $0.displayPriority > $1.displayPriority }
+    }
 
     /// Short German status line, e.g. "bremst · Blinker links · ACC · Fernlicht".
     var statusText: String {
         guard let c = cam else { return "" }
         var t: [String] = []
+        if hasSiren { t.append("Martinshorn") } else if hasLightBar { t.append("Blaulicht") }
         if emergencyBraking { t.append("Notbremsung") } else if braking { t.append("bremst") } else if accelerating { t.append("beschleunigt") }
         if let a = c.longAccel, abs(a) >= 0.3 { t.append(String(format: "%+.1f m/s²", a)) }
         switch (blinkLeft, blinkRight) {
@@ -60,6 +90,15 @@ struct Station: Identifiable {
 
     var title: String {
         if let c = denmCause { return "\(c.label) \(c.sublabel)".trimmingCharacters(in: .whitespaces) }
+        if let p = spatPhase, p != .unknown {
+            switch p {
+            case .red: return "Ampel · Rot"
+            case .yellow: return "Ampel · Gelb"
+            case .green: return "Ampel · Grün"
+            case .unknown: break
+            }
+        }
+        if stationType == 15, msgType == .cam { return "RSU" }
         if let s = speedMps, msgType == .cam { return String(format: "%.0f km/h", s * 3.6) }
         return msgType.rawValue
     }
@@ -176,19 +215,35 @@ final class AppModel {
         s.count += 1
         s.recent.insert(f, at: 0)
         if s.recent.count > 20 { s.recent.removeLast() }
-        if d.msgType != .unknown { s.msgType = d.msgType }
-        if let v = d.stationType { s.stationType = v }
+        if d.msgType != .unknown {
+            s.msgTypes.insert(d.msgType)
+            if d.msgType.displayPriority >= s.msgType.displayPriority { s.msgType = d.msgType }
+        }
+        if let v = d.stationType, v != 0 || s.stationType == nil { s.stationType = v }
         if let lat = d.latitude, let lon = d.longitude { s.coordinate = .init(latitude: lat, longitude: lon) }
+        if let v = d.altitudeM { s.altitudeM = v }
         if let v = d.headingDeg { s.headingDeg = v }
         if let v = d.speedMps { s.speedMps = v }
         if let v = d.secured { s.secured = v }
         if let v = d.spatPhase, v != .unknown { s.spatPhase = v }
         if let v = d.denmCause { s.denmCause = v }
         if let c = d.cam {
-            // Lights only come in low-frequency CAMs and the control bits are optional: keep the last known.
+            // Low-frequency / special-vehicle fields only come every ~500 ms and some HF fields are optional: keep last known.
             var m = c
+            m.stationType = (c.stationType != 0 ? c.stationType : nil) ?? s.cam?.stationType
+            m.lengthM = c.lengthM ?? s.cam?.lengthM
+            m.widthM = c.widthM ?? s.cam?.widthM
             m.control = c.control ?? s.cam?.control
+            m.lanePosition = c.lanePosition ?? s.cam?.lanePosition
+            m.steeringWheelDeg = c.steeringWheelDeg ?? s.cam?.steeringWheelDeg
+            m.latAccel = c.latAccel ?? s.cam?.latAccel
+            m.vertAccel = c.vertAccel ?? s.cam?.vertAccel
+            m.performanceClass = c.performanceClass ?? s.cam?.performanceClass
+            m.vehicleRole = c.vehicleRole ?? s.cam?.vehicleRole
             m.lights = c.lights ?? s.cam?.lights
+            m.pathHistoryCount = c.pathHistoryCount ?? s.cam?.pathHistoryCount
+            m.lightBar = c.lightBar ?? s.cam?.lightBar
+            m.siren = c.siren ?? s.cam?.siren
             s.cam = m
         }
         stations[id] = s

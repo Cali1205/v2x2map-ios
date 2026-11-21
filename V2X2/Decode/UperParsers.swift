@@ -29,6 +29,19 @@ struct BitReader {
         if range <= 1 { return lo }
         return lo + bits(Int.bitWidth - (range - 1).leadingZeroBitCount)
     }
+
+    /// ReferencePosition (123 bits): lat (31), lon (32), ellipse (36), alt (20), altConf (4).
+    mutating func referencePosition() -> (latitude: Double?, longitude: Double?, altitudeM: Double?) {
+        let latRaw = constrained(-900_000_000, 900_000_001)
+        let lonRaw = constrained(-1_800_000_000, 1_800_000_001)
+        skip(36)
+        let altRaw = constrained(-100_000, 800_001)
+        skip(4)
+        let lat = latRaw != 900_000_001 && (-900_000_000...900_000_000).contains(latRaw) ? Double(latRaw) / 1e7 : nil
+        let lon = lonRaw != 1_800_000_001 && (-1_800_000_000...1_800_000_000).contains(lonRaw) ? Double(lonRaw) / 1e7 : nil
+        let alt = altRaw != 800_001 && (-100_000...800_000).contains(altRaw) ? Double(altRaw) / 100.0 : nil
+        return (lat, lon, alt)
+    }
 }
 
 /// SPATEM (ETSI EN 302 637-3): phase of the first movement event of the first intersection.
@@ -69,7 +82,7 @@ enum SpatTemParser {
     }
 }
 
-/// DENM (ETSI EN 302 637-3 v1.3.x): causeCode / subCauseCode. Port of android DenmParser.kt.
+/// DENM (ETSI EN 302 637-3 v1.3.x): eventPosition, stationType, causeCode / subCauseCode. Port of android DenmParser.kt.
 enum DenmParser {
     struct Cause: Equatable {
         let causeCode: Int
@@ -91,7 +104,19 @@ enum DenmParser {
         }
     }
 
+    struct Info: Equatable {
+        let cause: Cause?
+        let latitude: Double?
+        let longitude: Double?
+        let altitudeM: Double?
+        let stationType: Int
+    }
+
     static func extractCause(_ p: [UInt8], btpOff: Int) -> Cause? {
+        parse(p, btpOff: btpOff)?.cause
+    }
+
+    static func parse(_ p: [UInt8], btpOff: Int) -> Info? {
         let its = btpOff + 4
         guard its + 6 <= p.count, p[its] == 2, p[its + 1] == 1 else { return nil }
         var b = BitReader(p, startByte: its + 6)
@@ -105,17 +130,23 @@ enum DenmParser {
         b.skip(48)                                     // ActionID
         b.skip(84)                                     // detectionTime + referenceTime
         if term == 1 { b.skip(1) }
-        b.skip(123)                                    // eventPosition
+        let pos = b.referencePosition()                // eventPosition (123 bits)
         if relDist == 1 { b.skip(3) }
         if relDir == 1 { b.skip(2) }
         if valDur == 1 { b.skip(17) }
         if transInt == 1 { b.skip(14) }
-        b.skip(8)                                      // stationType
-        guard sitPresent == 1 else { return nil }
-        // SituationContainer: ext marker, linkedCause + eventHistory present, informationQuality (3),
-        // then CauseCode: ext marker, causeCode (8), subCauseCode (8).
-        b.skip(1 + 2 + 3 + 1)
-        return Cause(causeCode: b.bits(8), subCauseCode: b.bits(8))
+        let stationType = b.bits(8)
+        let cause: Cause?
+        if sitPresent == 1 {
+            // SituationContainer: ext marker, linkedCause + eventHistory present, informationQuality (3),
+            // then CauseCode: ext marker, causeCode (8), subCauseCode (8).
+            b.skip(1 + 2 + 3 + 1)
+            cause = Cause(causeCode: b.bits(8), subCauseCode: b.bits(8))
+        } else {
+            cause = nil
+        }
+        return Info(cause: cause, latitude: pos.latitude, longitude: pos.longitude,
+                    altitudeM: pos.altitudeM, stationType: stationType)
     }
 
     private static let causeLabels: [Int: String] = [
@@ -133,14 +164,65 @@ enum DenmParser {
     private static let subStationary: [Int: String] = [0: "", 1: "(m. Gefahren)", 2: "(Pannenhilfe)", 3: "(Fahrzeugpanne)", 4: "(Unfall)", 5: "(Gefährl. Fahrzeug)"]
 }
 
-/// CAM (EN 302 637-2 v1.4, CDD v1.3): vehicle state from the basic-vehicle high/low-frequency containers.
+/// CAM (EN 302 637-2 v1.4, CDD v1.3): vehicle state from basic, high-, low-frequency & special-vehicle containers.
 enum CamParser {
+    enum DriveDirection: Int, Equatable {
+        case forward = 0, backward = 1
+        var label: String { self == .forward ? "Vorwärts" : "Rückwärts" }
+    }
+
+    enum VehicleRole: Int, Equatable {
+        case standard = 0, publicTransport = 1, specialTransport = 2, dangerousGoods = 3,
+             roadWork = 4, rescue = 5, emergency = 6, safetyCar = 7, agriculture = 8,
+             commercial = 9, military = 10, roadOperator = 11, taxi = 12
+
+        var label: String {
+            switch self {
+            case .standard: "Standard"
+            case .publicTransport: "ÖPNV"
+            case .specialTransport: "Schwertransport"
+            case .dangerousGoods: "Gefahrgut"
+            case .roadWork: "Baustelle"
+            case .rescue: "Rettung"
+            case .emergency: "Einsatzfahrzeug"
+            case .safetyCar: "Sicherheitsfahrzeug"
+            case .agriculture: "Landwirtschaft"
+            case .commercial: "Gewerbe"
+            case .military: "Militär"
+            case .roadOperator: "Straßenbetrieb"
+            case .taxi: "Taxi"
+            }
+        }
+    }
+
     struct State: Equatable {
+        var stationType: Int?
+        var altitudeM: Double?
         var speedMps: Double?
         var headingDeg: Double?
+        var driveDirection: DriveDirection?
+        var lengthM: Double?
+        var widthM: Double?
         var longAccel: Double?          // m/s², negative = braking
+        var curvature: Int?             // CDD v1.3: -1023..1022, unit 1/10000 m⁻¹, + = left, - = right, 0 = straight
+        var yawRateDegPerSec: Double?   // °/s, + = counter-clockwise / left
         var control: Control?           // only if the sender includes accelerationControl
+        var lanePosition: Int?          // -1 = offRoad, 0 = innerShoulder, 1..13 = lanes, 14 = outerShoulder
+        var steeringWheelDeg: Double?   // degrees, 1.5° resolution
+        var latAccel: Double?           // m/s²
+        var vertAccel: Double?          // m/s²
+        var performanceClass: Int?      // 1..7
+        var vehicleRole: VehicleRole?   // only in low-frequency CAMs
         var lights: Lights?             // only in low-frequency CAMs (every ~500 ms)
+        var pathHistoryCount: Int?
+        var lightBar: Bool?             // SpecialVehicleContainer: blue/amber beacon active
+        var siren: Bool?                // SpecialVehicleContainer: siren active
+
+        /// Turning radius in meters (signed: + left, - right), nil if straight or unknown.
+        var curveRadiusM: Double? {
+            guard let c = curvature, c != 0 else { return nil }
+            return 10_000.0 / Double(c)
+        }
     }
 
     /// AccelerationControl BIT STRING, bit 0 first.
@@ -175,34 +257,110 @@ enum CamParser {
         b.skip(16)                                      // generationDeltaTime
         b.skip(1)                                       // CamParameters extension marker
         let lfPresent = b.bit()
-        b.skip(1)                                       // specialVehicleContainer present
-        b.skip(1 + 8 + 123)                             // BasicContainer: ext, stationType, referencePosition
-        guard b.bit() == 0, b.bit() == 0 else { return nil }  // HF choice: not extended, basicVehicle (not RSU)
+        let svPresent = b.bit()
+
+        // BasicContainer: ext (1), stationType (8), referencePosition (123)
+        b.skip(1)
+        var s = State()
+        s.stationType = b.bits(8)
+        let refPos = b.referencePosition()
+        s.altitudeM = refPos.altitudeM
+
+        guard b.bit() == 0, b.bit() == 0 else { return s }  // HF choice: not extended, basicVehicle (RSU returns basic info)
         let accCtl = b.bit(), lane = b.bit(), steer = b.bit(), latAcc = b.bit(), vertAcc = b.bit(), perf = b.bit(), toll = b.bit()
 
-        var s = State()
         let heading = b.bits(12); b.skip(7)
         let speed = b.bits(14); b.skip(7)
         if heading <= 3600 { s.headingDeg = Double(heading) / 10 }
         if speed < 16383 { s.speedMps = Double(speed) / 100 }
-        b.skip(2)                                       // driveDirection
-        b.skip(10 + 3)                                  // vehicleLength
-        b.skip(6)                                       // vehicleWidth
-        let acc = b.bits(9) - 160; b.skip(7)
+
+        let dir = b.bits(2)
+        s.driveDirection = DriveDirection(rawValue: dir)
+
+        let lenVal = b.constrained(1, 1023); b.skip(3)
+        if (1...1021).contains(lenVal) { s.lengthM = Double(lenVal) / 10 }
+        let widVal = b.constrained(1, 62)
+        if (1...60).contains(widVal) { s.widthM = Double(widVal) / 10 }
+
+        let acc = b.constrained(-160, 161); b.skip(7)
         if acc != 161 { s.longAccel = Double(acc) / 10 }
-        b.skip(11 + 3)                                  // curvature
+
+        let curv = b.constrained(-1023, 1023); b.skip(3)
+        if curv != 1023 { s.curvature = curv }
         b.skip(1 + 2)                                   // curvatureCalculationMode (extensible enum)
-        b.skip(16 + 4)                                  // yawRate
+
+        let yaw = b.constrained(-32766, 32767); b.skip(4)
+        if yaw != 32767 { s.yawRateDegPerSec = Double(yaw) / 100 }
+
         if accCtl == 1 { s.control = Control(rawValue: b.bits(7)) }
-        guard lfPresent == 1, toll == 0 else { return s }
-        if lane == 1 { b.skip(4) }
-        if steer == 1 { b.skip(10 + 7) }
-        if latAcc == 1 { b.skip(9 + 7) }
-        if vertAcc == 1 { b.skip(9 + 7) }
-        if perf == 1 { b.skip(3) }
-        guard b.bit() == 0 else { return s }            // LF choice extension
-        b.skip(4)                                       // vehicleRole
-        s.lights = Lights(rawValue: b.bits(8))
+        if lane == 1 { s.lanePosition = b.constrained(-1, 14) }
+        if steer == 1 {
+            let sw = b.constrained(-511, 512); b.skip(7)
+            if sw != 512 { s.steeringWheelDeg = Double(sw) * 1.5 }
+        }
+        if latAcc == 1 {
+            let la = b.constrained(-160, 161); b.skip(7)
+            if la != 161 { s.latAccel = Double(la) / 10 }
+        }
+        if vertAcc == 1 {
+            let va = b.constrained(-160, 161); b.skip(7)
+            if va != 161 { s.vertAccel = Double(va) / 10 }
+        }
+        if perf == 1 {
+            let pc = b.bits(3)
+            if pc > 0 { s.performanceClass = pc }
+        }
+        guard toll == 0 else { return s }
+
+        if lfPresent == 1 {
+            guard b.bit() == 0 else { return s }        // LF choice extension
+            s.vehicleRole = VehicleRole(rawValue: b.bits(4))
+            s.lights = Lights(rawValue: b.bits(8))
+            if b.pos + 6 <= b.b.count * 8 {
+                let count = b.constrained(0, 40)
+                s.pathHistoryCount = count
+                if svPresent == 1 {
+                    for _ in 0..<count {
+                        let hasDelta = b.bit()
+                        b.skip(18 + 18 + 15)            // DeltaReferencePosition
+                        if hasDelta == 1 {
+                            guard b.bit() == 0 else { return s } // PathDeltaTime ext marker (1..65535, ...)
+                            b.skip(16)
+                        }
+                    }
+                }
+            }
+        }
+
+        if svPresent == 1, b.pos + 4 <= b.b.count * 8, b.bit() == 0 {
+            let choice = b.constrained(0, 6)
+            switch choice {
+            case 1: // specialTransportContainer: specialTransportType(4), lightBarSirenInUse(2)
+                b.skip(4)
+                readLightBarSiren(&b, into: &s)
+            case 3: // roadWorksContainerBasic: opt(2), [subCause(8)], lightBarSirenInUse(2)
+                let hasSub = b.bit(); _ = b.bit()
+                if hasSub == 1 { b.skip(8) }
+                readLightBarSiren(&b, into: &s)
+            case 4: // rescueContainer: lightBarSirenInUse(2)
+                readLightBarSiren(&b, into: &s)
+            case 5: // emergencyContainer: opt(2), lightBarSirenInUse(2)
+                b.skip(2)
+                readLightBarSiren(&b, into: &s)
+            case 6: // safetyCarContainer: opt(3), lightBarSirenInUse(2)
+                b.skip(3)
+                readLightBarSiren(&b, into: &s)
+            default:
+                break
+            }
+        }
         return s
+    }
+
+    private static func readLightBarSiren(_ b: inout BitReader, into s: inout State) {
+        guard b.pos + 2 <= b.b.count * 8 else { return }
+        let v = b.bits(2)
+        s.lightBar = (v & 0b10) != 0
+        s.siren = (v & 0b01) != 0
     }
 }

@@ -16,6 +16,7 @@ enum ItsG5Decoder {
         var stationType: Int?
         var latitude: Double?
         var longitude: Double?
+        var altitudeM: Double?
         var headingDeg: Double?
         var speedMps: Double?
         var btpDstPort: Int?
@@ -64,7 +65,7 @@ enum ItsG5Decoder {
 
             // Source Long Position Vector: GnAddr 8 | TST 4 | LAT 4 | LON 4 | PAI+speed 2 | heading 2
             let stationId = p[srcPosOff ..< srcPosOff + 8].reduce(UInt64(0)) { $0 << 8 | UInt64($1) }
-            let stationType = Int(p[srcPosOff] >> 2) & 0x1F
+            let gnStationType = Int(p[srcPosOff] >> 2) & 0x1F
 
             var latRaw = be32(p, srcPosOff + 12)
             var lonRaw = be32(p, srcPosOff + 16)
@@ -81,25 +82,35 @@ enum ItsG5Decoder {
             let speed = Double(speedRaw >= 0x4000 ? speedRaw - 0x8000 : speedRaw) / 100.0
             let headingRaw = Int(psh & 0xFFFF)
 
-            let lat = Double(latRaw) / 1e7, lon = Double(lonRaw) / 1e7
-            let hasPos = (-90.0...90.0).contains(lat) && (-180.0...180.0).contains(lon) && (lat != 0 || lon != 0)
+            let lpvLat = Double(latRaw) / 1e7, lpvLon = Double(lonRaw) / 1e7
+            let hasPos = (-90.0...90.0).contains(lpvLat) && (-180.0...180.0).contains(lpvLon) && (lpvLat != 0 || lpvLon != 0)
 
             let dstPort = Int(p[btpOff]) << 8 | Int(p[btpOff + 1])
             let msgType = MsgType(btpPort: dstPort)
+
+            let denm = msgType == .denm ? DenmParser.parse(p, btpOff: btpOff) : nil
+            let cam = msgType == .cam ? CamParser.parse(p, btpOff: btpOff) : nil
+
+            // For DENMs, prefer the hazard's eventPosition over the forwarding sender's LPV.
+            let lat = denm?.latitude ?? (hasPos ? lpvLat : nil)
+            let lon = denm?.longitude ?? (hasPos ? lpvLon : nil)
+            let alt = denm?.altitudeM ?? cam?.altitudeM
+            let stationType = (gnStationType != 0 ? gnStationType : nil) ?? cam?.stationType ?? denm?.stationType ?? gnStationType
 
             return Decoded(
                 etherType: et,
                 msgType: msgType,
                 stationId: stationId,
                 stationType: stationType,
-                latitude: hasPos ? lat : nil,
-                longitude: hasPos ? lon : nil,
-                headingDeg: hasPos && headingRaw != 0xFFFF ? Double(headingRaw) / 10.0 : nil,
-                speedMps: hasPos ? speed : nil,
+                latitude: lat,
+                longitude: lon,
+                altitudeM: alt,
+                headingDeg: hasPos && headingRaw != 0xFFFF ? Double(headingRaw) / 10.0 : cam?.headingDeg,
+                speedMps: hasPos ? speed : cam?.speedMps,
                 btpDstPort: dstPort,
                 spatPhase: msgType == .spatem ? SpatTemParser.extractPhase(p, btpOff: btpOff) : nil,
-                denmCause: msgType == .denm ? DenmParser.extractCause(p, btpOff: btpOff) : nil,
-                cam: msgType == .cam ? CamParser.parse(p, btpOff: btpOff) : nil,
+                denmCause: denm?.cause,
+                cam: cam,
                 secured: secured
             )
         }
@@ -134,9 +145,9 @@ enum ItsG5Decoder {
     }
 }
 
-enum MsgType: String, CaseIterable {
+enum MsgType: String, CaseIterable, Hashable {
     case unknown = "?", cam = "CAM", denm = "DENM", mapem = "MAPEM", spatem = "SPATEM",
-         ivim = "IVIM", srem = "SREM", ssem = "SSEM", tlm = "TLM", rtcmem = "RTCMEM"
+         ivim = "IVIM", srem = "SREM", ssem = "SSEM", cpm = "CPM", tlm = "TLM", rtcmem = "RTCMEM"
 
     init(btpPort: Int) {
         switch btpPort {
@@ -147,9 +158,26 @@ enum MsgType: String, CaseIterable {
         case 2006: self = .ivim
         case 2007: self = .srem
         case 2008: self = .ssem
+        case 2009: self = .cpm
         case 2010: self = .tlm
         case 2012: self = .rtcmem
         default: self = .unknown
+        }
+    }
+
+    /// Higher priority wins when an RSU alternates between e.g. SPATEM and MAPEM under the same station ID.
+    var displayPriority: Int {
+        switch self {
+        case .denm: 100
+        case .spatem: 90
+        case .cam: 80
+        case .ivim: 70
+        case .cpm: 60
+        case .mapem: 50
+        case .tlm: 40
+        case .ssem, .srem: 30
+        case .rtcmem: 20
+        case .unknown: 0
         }
     }
 
@@ -160,9 +188,10 @@ enum MsgType: String, CaseIterable {
         case .denm: "Gefahrenmeldung"
         case .mapem: "Kreuzungsgeometrie"
         case .spatem: "Ampelphase"
-        case .ivim: "Fahrzeuginfo"
+        case .ivim: "Verkehrsinfo"
         case .srem: "Signalanfrage"
         case .ssem: "Signalstatus"
+        case .cpm: "Umfeldwahrnehmung"
         case .tlm: "Verkehrslicht"
         case .rtcmem: "Korrekturdaten"
         }
@@ -178,6 +207,7 @@ enum MsgType: String, CaseIterable {
         case .spatem: 0x388E3C
         case .ivim: 0xC2185B
         case .srem, .ssem: 0x00838F
+        case .cpm: 0x00897B
         case .tlm: 0xAFB42B
         case .rtcmem: 0x455A64
         }
@@ -194,7 +224,45 @@ enum MsgType: String, CaseIterable {
         case .spatem, .tlm, .ssem, .srem: "light.beacon.max.fill"
         case .mapem: "map.fill"
         case .ivim: "info.circle.fill"
+        case .cpm: "viewfinder.circle.fill"
         default: "dot.radiowaves.left.and.right"
+        }
+    }
+}
+
+/// ETSI TS 102 894-2 StationType human-readable German names and SF Symbols.
+enum StationClass {
+    static func label(for type: Int?) -> String {
+        switch type {
+        case 1: "Fußgänger"
+        case 2: "Fahrrad"
+        case 3: "Moped"
+        case 4: "Motorrad"
+        case 5: "PKW"
+        case 6: "Bus"
+        case 7: "Leichter LKW"
+        case 8: "Schwerer LKW"
+        case 9: "Anhänger"
+        case 10: "Sonderfahrzeug"
+        case 11: "Straßenbahn"
+        case 15: "RSU (Infrastruktur)"
+        case let v? where v > 0: "Typ \(v)"
+        default: "Unbekannt"
+        }
+    }
+
+    static func symbol(for type: Int?) -> String? {
+        switch type {
+        case 1: "figure.walk"
+        case 2: "bicycle"
+        case 3, 4: "scooter"
+        case 5: "car.fill"
+        case 6: "bus.fill"
+        case 7, 8, 9: "box.truck.fill"
+        case 10: "light.beacon.max.fill"
+        case 11: "tram.fill"
+        case 15: "antenna.radiowaves.left.and.right"
+        default: nil
         }
     }
 }

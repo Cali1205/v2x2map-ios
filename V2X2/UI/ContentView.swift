@@ -10,6 +10,7 @@ struct ContentView: View {
     @State private var showSettings = false
     @State private var showRecordPrompt = false
     @State private var didHandleLaunch = false
+    @State private var selectedStation: StationSelection?
     @AppStorage(Settings.showTrack) private var showTrack = true
     @AppStorage(Settings.mapStyle) private var mapStyle = 0
     @AppStorage(Settings.buttonLabels) private var buttonLabels = true
@@ -41,7 +42,12 @@ struct ContentView: View {
             }
             ForEach(stations) { s in
                 Annotation(s.title, coordinate: s.coordinate!) {
-                    StationMarker(station: s, isOwn: model.ego.egoId == s.id, mapHeading: mapHeading)
+                    Button {
+                        selectedStation = StationSelection(id: s.id)
+                    } label: {
+                        StationMarker(station: s, isOwn: model.ego.egoId == s.id, mapHeading: mapHeading)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -77,7 +83,14 @@ struct ContentView: View {
                 Text("Möchtest du die aktuelle Fahrt (ITS-G5-Frames und GPS-Spur) aufzeichnen?")
             }
         }
-        .sheet(isPresented: $showList) { StationListView().presentationDetents([.medium, .large]) }
+        .sheet(isPresented: $showList) {
+            StationListView(onFocus: focusOnCoordinate)
+                .presentationDetents([.medium, .large])
+        }
+        .sheet(item: $selectedStation) { sel in
+            StationDetailView(stationId: sel.id, onFocus: focusOnCoordinate)
+                .presentationDetents([.medium, .large])
+        }
         .sheet(isPresented: $showRecordings) { RecordingsView() }
         .sheet(isPresented: $showSettings) { SettingsView() }
         .onAppear {
@@ -109,6 +122,10 @@ struct ContentView: View {
         if let r = model.replay.recording?.region {
             position = .region(r)
         }
+    }
+
+    private func focusOnCoordinate(_ coordinate: CLLocationCoordinate2D) {
+        position = .camera(MapCamera(centerCoordinate: coordinate, distance: 600))
     }
 
     private var style: MapStyle {
@@ -406,7 +423,7 @@ struct StationMarker: View {
     var mapHeading: Double = 0
 
     private var displayHeading: Double? {
-        guard station.msgType == .cam, let h = station.headingDeg else { return nil }
+        guard station.msgType == .cam, station.stationType != 15, let h = station.headingDeg else { return nil }
         return MarkerGeometry.screenHeading(vehicleHeading: h, mapHeading: mapHeading)
     }
 
@@ -429,6 +446,9 @@ struct StationMarker: View {
                     if active, station.braking {
                         Circle().stroke(.red, lineWidth: 4).frame(width: 34, height: 34)
                             .shadow(color: .red, radius: station.emergencyBraking ? 8 : 4)
+                    } else if active, station.hasSiren || station.hasLightBar {
+                        Circle().stroke(.blue, lineWidth: 4).frame(width: 34, height: 34)
+                            .shadow(color: .blue, radius: 6)
                     }
                 }
                 .overlay {
@@ -451,6 +471,14 @@ struct StationMarker: View {
                                 .padding(.vertical, 1)
                                 .background(.teal, in: Capsule())
                         }
+                        if active, station.hasSiren || station.hasLightBar {
+                            Text(station.hasSiren ? "SIRENE" : "BLAULICHT")
+                                .font(.system(size: 9, weight: .heavy))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(.blue, in: Capsule())
+                        }
                         if active { VehicleBadges(station: station) }
                     }
                     .fixedSize()
@@ -460,7 +488,7 @@ struct StationMarker: View {
             .opacity(active ? 1 : 0.45)
             .background { if active { PulseRing(color: fill) } }
         }
-        .accessibilityLabel("\(isOwn ? "Eigenes Fahrzeug, " : "")\(station.msgType.label), \(station.title)\(station.isActive ? "" : ", inaktiv")")
+        .accessibilityLabel("\(isOwn ? "Eigenes Fahrzeug, " : "")\(station.stationClassLabel), \(station.title)\(station.isActive ? "" : ", inaktiv")")
     }
 
     private var marker: some View {
@@ -473,7 +501,7 @@ struct StationMarker: View {
                     .foregroundStyle(.white)
                     .rotationEffect(.degrees(h))
             } else {
-                Image(systemName: station.msgType.symbol)
+                Image(systemName: station.symbol)
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(.white)
             }
@@ -482,6 +510,7 @@ struct StationMarker: View {
 
     private var fill: Color {
         if isOwn { return .teal }
+        if station.isEmergency { return .indigo }
         switch station.spatPhase {
         case .red: return .red
         case .yellow: return .yellow

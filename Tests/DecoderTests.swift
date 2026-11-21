@@ -69,12 +69,30 @@ final class DecoderTests: XCTestCase {
 
 final class DenmTests: XCTestCase {
     /// Real DENM (BTP-B header onwards) received 2026-11-20: passenger car, causeCode 1 (traffic condition).
-    func testRealDenmCause() {
+    func testRealDenmCauseAndEventPosition() {
         let hex = "07d2000002019674a359c74b3a51acc57595056b0d7525415ac35f7528bf97770c6c92c11c11836c22e0c88800f014100803000058f07e81300483ef"
         let p = stride(from: 0, to: hex.count, by: 2).map { i -> UInt8 in
             let s = hex.index(hex.startIndex, offsetBy: i)
             return UInt8(hex[s..<hex.index(s, offsetBy: 2)], radix: 16)!
         }
         XCTAssertEqual(DenmParser.extractCause(p, btpOff: 0), DenmParser.Cause(causeCode: 1, subCauseCode: 0))
+
+        let info = DenmParser.parse(p, btpOff: 0)
+        XCTAssertNotNil(info)
+        XCTAssertEqual(info?.cause, DenmParser.Cause(causeCode: 1, subCauseCode: 0))
+        XCTAssertEqual(info?.stationType, 5)
+        XCTAssertEqual(info?.latitude ?? 0, 48.4905079, accuracy: 1e-6)
+        XCTAssertEqual(info?.longitude ?? 0, 9.2075820, accuracy: 1e-6)
+        XCTAssertEqual(info?.altitudeM ?? 0, 428.60, accuracy: 0.01)
+    }
+
+    func testMsgTypesAndStationClasses() {
+        XCTAssertEqual(MsgType(btpPort: 2009), .cpm)
+        XCTAssertGreaterThan(MsgType.spatem.displayPriority, MsgType.mapem.displayPriority)
+        XCTAssertGreaterThan(MsgType.denm.displayPriority, MsgType.cam.displayPriority)
+        XCTAssertEqual(StationClass.label(for: 5), "PKW")
+        XCTAssertEqual(StationClass.label(for: 15), "RSU (Infrastruktur)")
+        XCTAssertEqual(StationClass.symbol(for: 15), "antenna.radiowaves.left.and.right")
+        XCTAssertEqual(StationClass.symbol(for: 6), "bus.fill")
     }
 }
