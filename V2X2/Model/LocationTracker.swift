@@ -34,7 +34,11 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
         last = l
         track.append(l.coordinate)
         if track.count > 10_000 { track.removeFirst(1_000) }
+        onLocation?(l)
     }
+
+    /// Called for every accepted fix (the recorder writes it to the track file).
+    @ObservationIgnored var onLocation: ((CLLocation) -> Void)?
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         manager.startUpdatingLocation()

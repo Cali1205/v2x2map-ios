@@ -21,7 +21,7 @@ struct Station: Identifiable {
 
     /// Still sending: heard within the last few seconds (CAMs come at 1–10 Hz, the receiver
     /// alternates radio and Bluetooth, so allow some gaps).
-    var isActive: Bool { Date().timeIntervalSince(lastSeen) < 15 }
+    var isActive: Bool { Clock.now.timeIntervalSince(lastSeen) < 15 }
 
     // Vehicle state from CAMs. Thresholds: ~0.1 g counts as clearly braking/accelerating.
     var braking: Bool { cam?.control?.contains(.brakePedal) == true || (cam?.longAccel ?? 0) <= -1.0 }
@@ -79,6 +79,7 @@ final class AppModel {
     let location = LocationTracker()
     let recorder = PcapRecorder()
     let mqtt = MqttClient()
+    let replay = Replayer()
 
     @ObservationIgnored private let receiver = Receiver()
     @ObservationIgnored private var reader = FrameReader()
@@ -88,7 +89,7 @@ final class AppModel {
 
     private init() {
         UserDefaults.standard.register(defaults: [Settings.ttlMinutes: 10, Settings.showTrack: true,
-                                                  Settings.mqttURL: Settings.defaultBroker])
+                                                  Settings.buttonLabels: true, Settings.mqttURL: Settings.defaultBroker])
         receiver.onState = { [weak self] in self?.state = $0 }
         receiver.onConfig = { [weak self] in self?.receiverConfig = $0 }
         receiver.onMac = { [weak self] in self?.receiverMac = $0; self?.syncMqtt() }
@@ -96,15 +97,34 @@ final class AppModel {
             guard let self else { return }
             for f in reader.feed(data) { ingest(f) }
         }
+        location.onLocation = { [weak self] in self?.recorder.write(location: $0) }
+        replay.onFrame = { [weak self] f, quiet in self?.apply(f, quiet: quiet) }
+        replay.onReset = { [weak self] in self?.resetStations() }
+        replay.lookback = { [weak self] in self?.markerTTL ?? 600 }
         syncMqtt()
         pruneTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.prune() }
     }
 
     /// Stations with a position that were seen within the marker TTL (only active ones if so set).
     var mapStations: [Station] {
-        let cutoff = Date().addingTimeInterval(-markerTTL)
+        let cutoff = Clock.now.addingTimeInterval(-markerTTL)
         let hideInactive = UserDefaults.standard.bool(forKey: Settings.hideInactive)
         return stations.values.filter { $0.coordinate != nil && $0.lastSeen >= cutoff && (!hideInactive || $0.isActive) }
+    }
+
+    /// Distance from the own position: the recorded one during a replay, else the live GPS.
+    func distance(to c: CLLocationCoordinate2D) -> CLLocationDistance? {
+        guard replay.isActive else { return location.distance(to: c) }
+        guard let f = replay.fix else { return nil }
+        return CLLocation(latitude: f.coordinate.latitude, longitude: f.coordinate.longitude)
+            .distance(from: CLLocation(latitude: c.latitude, longitude: c.longitude))
+    }
+
+    func toggleRecording() {
+        if recorder.isRecording { return recorder.stop() }
+        // Start the track with the current fix if it is fresh, so the replay has a position right away.
+        let fresh = location.last.flatMap { Date().timeIntervalSince($0.timestamp) < 30 ? $0 : nil }
+        recorder.start(at: fresh)
     }
 
     func writeReceiverConfig(_ v: [Int]) { receiver.writeConfig(v) }
@@ -123,10 +143,18 @@ final class AppModel {
         mqtt.start(cfg)
     }
 
+    /// A live frame from the receiver. During a replay it is still recorded and forwarded,
+    /// but the map shows the replay only.
     func ingest(_ f: Frame) {
-        totalFrames += 1
         recorder.write(f)
         mqtt.publish(Data(f.payload))
+        guard !replay.isActive else { return }
+        apply(f, quiet: false)
+    }
+
+    /// Updates the station model (live or replayed frame). `quiet`: no Geiger tick (fast rebuild after a seek).
+    private func apply(_ f: Frame, quiet: Bool) {
+        totalFrames += 1
         let d = f.decoded
         guard let id = d.stationId ?? f.transmitter else { return }
         if d.etherType == ItsG5Decoder.etherTypeItsG5 { itsFrames += 1 }
@@ -153,11 +181,18 @@ final class AppModel {
         }
         stations[id] = s
 
-        Geiger.tick(hazard: d.msgType == .denm)
+        if !quiet { Geiger.tick(hazard: d.msgType == .denm) }
+    }
+
+    /// Replay start / seek / stop: the map starts from scratch.
+    private func resetStations() {
+        stations.removeAll()
+        totalFrames = 0
+        itsFrames = 0
     }
 
     private func prune() {
-        let cutoff = Date().addingTimeInterval(-markerTTL)
+        let cutoff = Clock.now.addingTimeInterval(-markerTTL)
         stations = stations.filter { $0.value.lastSeen >= cutoff }
     }
 }
@@ -168,6 +203,7 @@ enum Settings {
     static let showTrack = "show_track"
     static let mapStyle = "map_style"
     static let hideInactive = "hide_inactive"
+    static let buttonLabels = "button_labels"
     static let mqttOn = "mqtt_on"
     static let mqttURL = "mqtt_url"
     static let mqttUser = "mqtt_user"

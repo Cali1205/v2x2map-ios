@@ -1,18 +1,20 @@
+import CoreLocation
 import Foundation
 import Observation
 
-/// Writes received frames to a standard .pcap (link type 105 = IEEE 802.11) for Wireshark.
-/// Files land in the app's Documents folder (visible in the Files app).
+/// Writes received frames to a standard .pcap (link type 105 = IEEE 802.11) for Wireshark, plus the own
+/// GPS track as .csv next to it (for replays). Files land in the app's Documents folder (Files app).
 @Observable
 final class PcapRecorder {
     private(set) var currentFile: URL?
     private(set) var lastFile: URL?
     private(set) var frames = 0
     @ObservationIgnored private var handle: FileHandle?
+    @ObservationIgnored private var trackHandle: FileHandle?
 
     var isRecording: Bool { handle != nil }
 
-    func start() {
+    func start(at location: CLLocation? = nil) {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let f = DateFormatter()
         f.dateFormat = "yyyyMMdd-HHmmss"
@@ -25,13 +27,27 @@ final class PcapRecorder {
         handle = h
         currentFile = url
         frames = 0
+
+        let csv = url.deletingPathExtension().appendingPathExtension("csv")
+        if FileManager.default.createFile(atPath: csv.path, contents: Data(TrackFile.header.utf8)),
+           let t = try? FileHandle(forWritingTo: csv) {
+            t.seekToEndOfFile()
+            trackHandle = t
+            if let location { write(location: location) }
+        }
     }
 
     func stop() {
         try? handle?.close()
+        try? trackHandle?.close()
         handle = nil
+        trackHandle = nil
         lastFile = currentFile
         currentFile = nil
+    }
+
+    func write(location: CLLocation) {
+        trackHandle?.write(Data(TrackFile.line(location).utf8))
     }
 
     func write(_ frame: Frame) {

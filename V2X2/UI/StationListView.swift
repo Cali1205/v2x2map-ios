@@ -10,7 +10,7 @@ struct StationListView: View {
                 DisclosureGroup {
                     ForEach(s.recent) { f in FrameRow(frame: f) }
                 } label: {
-                    StationRow(station: s, distance: s.coordinate.flatMap { model.location.distance(to: $0) })
+                    StationRow(station: s, distance: s.coordinate.flatMap { model.distance(to: $0) })
                 }
             }
             .overlay {

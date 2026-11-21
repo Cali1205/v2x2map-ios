@@ -7,12 +7,14 @@ struct SettingsView: View {
     @AppStorage(Settings.geiger) private var geiger = false
     @AppStorage(Settings.showTrack) private var showTrack = true
     @AppStorage(Settings.hideInactive) private var hideInactive = false
+    @AppStorage(Settings.buttonLabels) private var buttonLabels = true
     @AppStorage(Settings.mqttOn) private var mqttOn = false
     @AppStorage(Settings.mqttURL) private var mqttURL = Settings.defaultBroker
     @AppStorage(Settings.mqttUser) private var mqttUser = ""
     @AppStorage(Settings.mqttNode) private var mqttNode = ""
     @State private var mqttPassword = MqttPassword.get()
     @State private var cycle: [Int] = [1000, 1000, 500, 400]
+    @State private var showRecordings = false
 
     private let cycleLabels = ["Suche: Sniff", "Suche: BLE", "Verbunden: Sniff", "Verbunden: BLE"]
 
@@ -22,6 +24,7 @@ struct SettingsView: View {
                 Section {
                     Stepper("Marker-Lebensdauer: \(ttl) min", value: $ttl, in: 1...1440, step: ttl < 10 ? 1 : 5)
                     Toggle("Inaktive Objekte ausblenden", isOn: $hideInactive)
+                    Toggle("Button-Beschriftung anzeigen", isOn: $buttonLabels)
                     Toggle("Eigene Spur anzeigen", isOn: $showTrack)
                     Button("Spur löschen") { model.location.clearTrack() }
                 } header: {
@@ -34,11 +37,16 @@ struct SettingsView: View {
                 } footer: {
                     Text("Klick + Vibration pro Frame, Warnton bei Gefahrenmeldung (DENM).")
                 }
-                Section("Aufnahme") {
+                Section("Aufnahme & Wiedergabe") {
+                    Button {
+                        showRecordings = true
+                    } label: {
+                        Label("Aufgezeichnete Fahrten", systemImage: "play.circle")
+                    }
                     if let f = model.recorder.lastFile {
-                        ShareLink(item: f) { Label(f.lastPathComponent, systemImage: "square.and.arrow.up") }
+                        ShareLink(item: f) { Label("Letzte: \(f.lastPathComponent)", systemImage: "square.and.arrow.up") }
                     } else {
-                        Text("Noch keine Aufnahme. PCAP-Dateien liegen auch in der Dateien-App.")
+                        Text("PCAP-Dateien und GPS-Spuren liegen auch in der Dateien-App.")
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -86,6 +94,8 @@ struct SettingsView: View {
             .onDisappear { applyMqtt() }
             .onAppear { if let c = model.receiverConfig { cycle = c } }
             .onChange(of: model.receiverConfig ?? []) { _, c in if c.count == 4 { cycle = c } }
+            .onChange(of: model.replay.isActive) { _, active in if active { dismiss() } }
+            .sheet(isPresented: $showRecordings) { RecordingsView() }
         }
     }
 

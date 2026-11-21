@@ -5,15 +5,31 @@ struct ContentView: View {
     @Environment(AppModel.self) private var model
     @State private var position: MapCameraPosition = .userLocation(fallback: .automatic)
     @State private var showList = false
+    @State private var showRecordings = false
     @State private var showSettings = false
     @AppStorage(Settings.showTrack) private var showTrack = true
     @AppStorage(Settings.mapStyle) private var mapStyle = 0
+    @AppStorage(Settings.buttonLabels) private var buttonLabels = true
 
     var body: some View {
         Map(position: $position) {
-            UserAnnotation()
-            if showTrack, model.location.track.count > 1 {
-                MapPolyline(coordinates: model.location.track).stroke(.blue.opacity(0.7), lineWidth: 4)
+            if model.replay.isActive {
+                if showTrack, model.replay.fullTrack.count > 1 {
+                    MapPolyline(coordinates: model.replay.fullTrack).stroke(.blue.opacity(0.25), lineWidth: 3)
+                }
+                if showTrack, model.replay.playedTrack.count > 1 {
+                    MapPolyline(coordinates: model.replay.playedTrack).stroke(.blue.opacity(0.85), lineWidth: 4)
+                }
+                if let fix = model.replay.fix {
+                    Annotation("Aufzeichnung", coordinate: fix.coordinate) {
+                        ReplayCarMarker(fix: fix)
+                    }
+                }
+            } else {
+                UserAnnotation()
+                if showTrack, model.location.track.count > 1 {
+                    MapPolyline(coordinates: model.location.track).stroke(.blue.opacity(0.7), lineWidth: 4)
+                }
             }
             ForEach(model.mapStations) { s in
                 Annotation(s.title, coordinate: s.coordinate!) {
@@ -29,9 +45,37 @@ struct ContentView: View {
             MapScaleView()
         }
         .safeAreaInset(edge: .top) { StatusBar() }
-        .safeAreaInset(edge: .bottom) { bottomBar }
+        .safeAreaInset(edge: .bottom) {
+            VStack(spacing: 8) {
+                if model.replay.isActive {
+                    ReplayBar(onFitRoute: fitReplayRegion)
+                }
+                bottomBar
+            }
+        }
         .sheet(isPresented: $showList) { StationListView().presentationDetents([.medium, .large]) }
+        .sheet(isPresented: $showRecordings) { RecordingsView() }
         .sheet(isPresented: $showSettings) { SettingsView() }
+        .onChange(of: model.replay.name) { _, name in
+            if name != nil { fitReplayRegion() }
+        }
+        .onChange(of: model.replay.isActive) { _, active in
+            if !active { position = .userLocation(fallback: .automatic) }
+        }
+        .alert("Wiedergabe fehlgeschlagen", isPresented: Binding(
+            get: { !showRecordings && model.replay.error != nil },
+            set: { if !$0 { model.replay.error = nil } }
+        )) {
+            Button("OK", role: .cancel) { model.replay.error = nil }
+        } message: {
+            Text(model.replay.error ?? "")
+        }
+    }
+
+    private func fitReplayRegion() {
+        if let r = model.replay.recording?.region {
+            position = .region(r)
+        }
     }
 
     private var style: MapStyle {
@@ -43,15 +87,19 @@ struct ContentView: View {
     }
 
     private var bottomBar: some View {
-        HStack(spacing: 22) {
+        HStack(spacing: 4) {
             Button { showList = true } label: {
-                Label("\(model.stations.count)", systemImage: "list.bullet")
+                barItem("Liste", systemImage: "list.bullet", badge: "\(model.stations.count)")
             }
             Button {
-                // Heading-up follow (Android "compass mode").
-                position = .userLocation(followsHeading: true, fallback: .automatic)
+                if let fix = model.replay.fix {
+                    position = .camera(MapCamera(centerCoordinate: fix.coordinate, distance: 1200, heading: fix.courseDeg ?? 0))
+                } else {
+                    // Heading-up follow (Android "compass mode").
+                    position = .userLocation(followsHeading: true, fallback: .automatic)
+                }
             } label: {
-                Image(systemName: "location.north.line.fill")
+                barItem("Kompass", systemImage: "location.north.line.fill")
             }
             Menu {
                 Picker("Karte", selection: $mapStyle) {
@@ -60,22 +108,53 @@ struct ContentView: View {
                     Text("Satellit").tag(2)
                 }
             } label: {
-                Image(systemName: "square.3.layers.3d")
+                barItem("Karte", systemImage: "square.3.layers.3d")
             }
             Button {
-                model.recorder.isRecording ? model.recorder.stop() : model.recorder.start()
+                model.toggleRecording()
             } label: {
-                Image(systemName: model.recorder.isRecording ? "stop.circle.fill" : "record.circle")
-                    .foregroundStyle(model.recorder.isRecording ? Color.red : Color.accentColor)
+                barItem(model.recorder.isRecording ? "Stopp" : "Aufnahme",
+                        systemImage: model.recorder.isRecording ? "stop.circle.fill" : "record.circle",
+                        tint: model.recorder.isRecording ? .red : nil)
             }
             .accessibilityLabel(model.recorder.isRecording ? "Aufnahme stoppen" : "PCAP aufnehmen")
-            Button { showSettings = true } label: { Image(systemName: "gearshape") }
+            Button { showRecordings = true } label: {
+                barItem("Fahrten",
+                        systemImage: model.replay.isActive ? "play.circle.fill" : "play.circle",
+                        tint: model.replay.isActive ? .blue : nil)
+            }
+            Button { showSettings = true } label: {
+                barItem("Optionen", systemImage: "gearshape")
+            }
         }
-        .font(.title)
-        .padding(.horizontal, 26)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 14)
+        .padding(.vertical, buttonLabels ? 9 : 12)
         .background(.regularMaterial, in: Capsule())
+        .padding(.horizontal)
         .padding(.bottom, 8)
+    }
+
+    private func barItem(_ title: String, systemImage: String, badge: String? = nil, tint: Color? = nil) -> some View {
+        VStack(spacing: 2) {
+            HStack(spacing: 3) {
+                Image(systemName: systemImage)
+                    .font(.title3)
+                if let badge {
+                    Text(badge)
+                        .font(.subheadline.monospacedDigit().weight(.semibold))
+                }
+            }
+            .foregroundStyle(tint ?? Color.accentColor)
+            if buttonLabels {
+                Text(title)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(tint ?? .secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
     }
 }
 
@@ -85,7 +164,7 @@ struct StatusBar: View {
     var body: some View {
         HStack(spacing: 8) {
             Circle().fill(color).frame(width: 10, height: 10)
-            Text(text).font(.subheadline.weight(.medium))
+            Text(text).font(.subheadline.weight(.medium)).lineLimit(1)
             Spacer()
             Text("\(model.itsFrames) ITS · \(model.totalFrames) total")
                 .font(.caption.monospacedDigit())
@@ -98,20 +177,173 @@ struct StatusBar: View {
     }
 
     private var text: String {
+        if model.replay.loading { return "Lade Aufnahme …" }
+        if model.replay.isActive { return "Wiedergabe · \(model.replay.name ?? "")" }
         switch model.state {
-        case .off: "Bluetooth aus"
-        case .unauthorized: "Bluetooth nicht erlaubt"
-        case .scanning: "Suche ITS-G5-RX …"
-        case .connecting: "Verbinde …"
-        case .connected: "Empfänger verbunden"
+        case .off: return "Bluetooth aus"
+        case .unauthorized: return "Bluetooth nicht erlaubt"
+        case .scanning: return "Suche ITS-G5-RX …"
+        case .connecting: return "Verbinde …"
+        case .connected: return "Empfänger verbunden"
         }
     }
 
     private var color: Color {
+        if model.replay.loading { return .orange }
+        if model.replay.isActive { return .blue }
         switch model.state {
-        case .connected: .green
-        case .connecting, .scanning: .orange
-        default: .red
+        case .connected: return .green
+        case .connecting, .scanning: return .orange
+        default: return .red
+        }
+    }
+}
+
+struct ReplayBar: View {
+    @Environment(AppModel.self) private var model
+    let onFitRoute: () -> Void
+    @State private var scrubbing = false
+    @State private var wasPlaying = false
+    @State private var scrubValue = 0.0
+
+    var body: some View {
+        let duration = max(1, model.replay.duration)
+        VStack(spacing: 6) {
+            HStack(spacing: 8) {
+                Text(model.replay.position?.formatted(date: .omitted, time: .standard) ?? "--:--:--")
+                    .font(.caption.monospacedDigit().weight(.semibold))
+                if let s = model.replay.fix?.speedMps {
+                    Text(String(format: "· %.0f km/h", s * 3.6))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text("\(format(scrubbing ? scrubValue : model.replay.elapsed)) / \(format(model.replay.duration))")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                Button { model.replay.stop() } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityLabel("Wiedergabe beenden")
+            }
+
+            Slider(
+                value: Binding(
+                    get: { scrubbing ? scrubValue : min(model.replay.elapsed, duration) },
+                    set: { v in
+                        scrubValue = v
+                        model.replay.seek(toElapsed: v)
+                    }
+                ),
+                in: 0...duration,
+                onEditingChanged: { editing in
+                    if editing {
+                        wasPlaying = model.replay.isPlaying
+                        scrubValue = model.replay.elapsed
+                        scrubbing = true
+                        model.replay.pause()
+                    } else {
+                        scrubbing = false
+                        if wasPlaying { model.replay.play() }
+                    }
+                }
+            )
+            .disabled(model.replay.duration <= 0)
+
+            HStack(spacing: 22) {
+                Button { model.replay.skip(-15) } label: {
+                    Image(systemName: "gobackward.15").font(.title3)
+                }
+                .accessibilityLabel("15 Sekunden zurück")
+
+                Button {
+                    model.replay.isPlaying ? model.replay.pause() : model.replay.play()
+                } label: {
+                    Image(systemName: model.replay.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.title2)
+                        .frame(width: 28)
+                }
+                .accessibilityLabel(model.replay.isPlaying ? "Pause" : "Abspielen")
+
+                Button { model.replay.skip(15) } label: {
+                    Image(systemName: "goforward.15").font(.title3)
+                }
+                .accessibilityLabel("15 Sekunden vor")
+
+                Spacer()
+
+                Menu {
+                    ForEach(Replayer.speeds, id: \.self) { s in
+                        Button {
+                            model.replay.speed = s
+                        } label: {
+                            if model.replay.speed == s {
+                                Label("\(Int(s))×", systemImage: "checkmark")
+                            } else {
+                                Text("\(Int(s))×")
+                            }
+                        }
+                    }
+                } label: {
+                    Text("\(Int(model.replay.speed))×")
+                        .font(.subheadline.monospacedDigit().weight(.semibold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(.quaternary, in: Capsule())
+                }
+                .accessibilityLabel("Geschwindigkeit")
+
+                if model.replay.recording?.region != nil {
+                    Button(action: onFitRoute) {
+                        Image(systemName: "viewfinder").font(.title3)
+                    }
+                    .accessibilityLabel("Auf Fahrt zoomen")
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
+        .padding(.horizontal)
+    }
+
+    private func format(_ seconds: TimeInterval) -> String {
+        let total = max(0, Int(seconds.rounded()))
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%02d:%02d", m, s)
+    }
+}
+
+struct ReplayCarMarker: View {
+    let fix: Recording.Fix
+
+    var body: some View {
+        VStack(spacing: 2) {
+            ZStack {
+                Circle().fill(.blue).frame(width: 28, height: 28)
+                    .overlay(Circle().stroke(.white, lineWidth: 2.5))
+                    .shadow(radius: 3)
+                if let course = fix.courseDeg {
+                    Image(systemName: "location.north.fill")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(.white)
+                        .rotationEffect(.degrees(course))
+                } else {
+                    Circle().fill(.white).frame(width: 8, height: 8)
+                }
+            }
+            if let speed = fix.speedMps {
+                Text(String(format: "%.0f km/h", speed * 3.6))
+                    .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(.black.opacity(0.65), in: Capsule())
+            }
         }
     }
 }
@@ -120,8 +352,8 @@ struct StationMarker: View {
     let station: Station
 
     var body: some View {
-        // Re-evaluates isActive every 2 s without new frames arriving.
-        TimelineView(.periodic(from: .now, by: 2)) { _ in
+        // Re-evaluates isActive every 1 s without new frames arriving.
+        TimelineView(.periodic(from: .now, by: 1)) { _ in
             let active = station.isActive
             // Extras are overlays so the circle stays centred on the vehicle's position.
             marker

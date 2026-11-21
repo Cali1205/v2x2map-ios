@@ -54,7 +54,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         }
         return model.mapStations
             .filter { $0.isActive || $0.msgType == .denm }
-            .compactMap { s in s.coordinate.map { (s, $0, model.location.distance(to: $0)) } }
+            .compactMap { s in s.coordinate.map { (s, $0, model.distance(to: $0)) } }
             .sorted { (rank($0.0), $0.2 ?? .infinity) < (rank($1.0), $1.2 ?? .infinity) }
     }
 
