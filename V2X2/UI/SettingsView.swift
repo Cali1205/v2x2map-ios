@@ -3,7 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
-    @AppStorage(Settings.ttlMinutes) private var ttl = 60
+    @AppStorage(Settings.ttlMinutes) private var ttl = 10
     @AppStorage(Settings.geiger) private var geiger = false
     @AppStorage(Settings.showTrack) private var showTrack = true
     @AppStorage(Settings.hideInactive) private var hideInactive = false

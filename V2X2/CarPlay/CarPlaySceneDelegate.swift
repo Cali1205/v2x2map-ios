@@ -48,7 +48,9 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
             switch s.msgType {
             case .denm: 0
             case .spatem: 1
-            case .cam: s.braking ? 2 : 3
+            case .cam:
+                if s.isEmergency { return 1 }
+                return s.braking ? 2 : 3
             default: 4
             }
         }
@@ -82,26 +84,32 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         mapItem.name = s.title
         return CPPointOfInterest(location: mapItem, title: s.title, subtitle: detail(s, item.distance),
                                   summary: s.statusText.isEmpty ? nil : s.statusText,
-                                  detailTitle: s.msgType.label, detailSubtitle: detail(s, item.distance),
+                                  detailTitle: s.msgType == .cam ? s.stationClassLabel : s.msgType.label,
+                                  detailSubtitle: detail(s, item.distance),
                                   detailSummary: s.statusText.isEmpty ? nil : s.statusText,
                                   pinImage: pinImage(s))
     }
 
     private func detail(_ s: Station, _ d: Double?) -> String {
-        guard let d else { return s.msgType.label }
+        let kind = s.msgType == .cam ? s.stationClassLabel : s.msgType.label
+        guard let d else { return kind }
         let dist = d < 1000 ? String(format: "%.0f m", d) : String(format: "%.1f km", d / 1000)
-        return "\(s.msgType.label) · \(dist)"
+        return "\(kind) · \(dist)"
     }
 
     private func pinImage(_ s: Station) -> UIImage? {
         let color: UIColor
-        switch s.spatPhase {
-        case .red: color = .systemRed
-        case .yellow: color = .systemYellow
-        case .green: color = .systemGreen
-        default: color = s.braking ? .systemRed : UIColor(s.msgType.color)
+        if s.isEmergency {
+            color = .systemIndigo
+        } else {
+            switch s.spatPhase {
+            case .red: color = .systemRed
+            case .yellow: color = .systemYellow
+            case .green: color = .systemGreen
+            default: color = s.braking ? .systemRed : UIColor(s.msgType.color)
+            }
         }
-        return UIImage(systemName: s.msgType.symbol)?.withTintColor(color, renderingMode: .alwaysOriginal)
+        return UIImage(systemName: s.symbol)?.withTintColor(color, renderingMode: .alwaysOriginal)
     }
 
     /// One alert per new hazard (DENM) within 2 km or of unknown distance; closes itself after 8 s.
