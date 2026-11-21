@@ -1,0 +1,94 @@
+name: TestFlight feedback
+
+# Fetches TestFlight tester feedback (screenshots + comments, crashes + logs)
+# via the App Store Connect API. The repo and its logs are public, so nothing
+# from the feedback is printed: the result is stored as an encrypted artifact
+# (AES-256, passphrase in the FEEDBACK_PASS secret) that expires after 1 day.
+# Decrypt: openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:FEEDBACK_PASS -in feedback.tar.gz.enc | tar xz
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+      FEEDBACK_PASS: ${{ secrets.FEEDBACK_PASS }}
+      BUNDLE_ID: ${{ vars.BUNDLE_ID || 'io.github.cali1205.v2x2map' }}
+    steps:
+      - run: pip install --quiet pyjwt cryptography requests
+      - name: Fetch feedback
+        shell: python
+        run: |
+          import json, os, time, pathlib, jwt, requests
+
+          out = pathlib.Path("feedback"); out.mkdir()
+          tok = jwt.encode(
+              {"iss": os.environ["ASC_ISSUER_ID"], "iat": int(time.time()),
+               "exp": int(time.time()) + 1200, "aud": "appstoreconnect-v1"},
+              os.environ["ASC_KEY_P8"], algorithm="ES256",
+              headers={"kid": os.environ["ASC_KEY_ID"], "typ": "JWT"})
+          s = requests.Session()
+          s.headers["Authorization"] = f"Bearer {tok}"
+          API = "https://api.appstoreconnect.apple.com"
+
+          def get_all(url, params=None):
+              data, included = [], []
+              while url:
+                  r = s.get(url, params=params); params = None
+                  if r.status_code != 200:
+                      print(f"HTTP {r.status_code} for {url.split('?')[0]}")
+                      (out / "errors.txt").open("a").write(f"{url}\n{r.text}\n\n")
+                      break
+                  j = r.json()
+                  data += j.get("data", []); included += j.get("included", [])
+                  url = j.get("links", {}).get("next")
+              return data, included
+
+          apps, _ = get_all(f"{API}/v1/apps", {"filter[bundleId]": os.environ["BUNDLE_ID"]})
+          if not apps:
+              raise SystemExit("App not found / API error (see artifact errors.txt)")
+          app = apps[0]["id"]
+
+          for kind in ("betaFeedbackScreenshotSubmissions", "betaFeedbackCrashSubmissions"):
+              data, inc = get_all(f"{API}/v1/apps/{app}/{kind}",
+                                  {"include": "build,tester", "limit": "200"})
+              (out / f"{kind}.json").write_text(json.dumps({"data": data, "included": inc}, indent=2))
+              print(f"{kind}: {len(data)}")
+              for d in data:
+                  fid = d["id"]
+                  if kind.startswith("betaFeedbackScreenshot"):
+                      for i, shot in enumerate(d["attributes"].get("screenshots") or []):
+                          try:
+                              r = requests.get(shot["url"], timeout=60)
+                              if r.ok:
+                                  (out / f"{fid}_{i}.jpg").write_bytes(r.content)
+                          except Exception as e:
+                              print("screenshot download failed:", type(e).__name__)
+                  else:
+                      r = s.get(f"{API}/v1/betaFeedbackCrashSubmissions/{fid}/crashLog")
+                      if r.ok:
+                          log = r.json()["data"]["attributes"].get("logText") or ""
+                          (out / f"{fid}_crash.txt").write_text(log)
+                      else:
+                          print(f"crash log HTTP {r.status_code}")
+      - name: Encrypt
+        if: always()
+        run: |
+          test -n "$FEEDBACK_PASS" || { echo "::error::Missing secret FEEDBACK_PASS"; exit 1; }
+          test -d feedback || mkdir feedback
+          tar czf - feedback | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt \
+            -pass env:FEEDBACK_PASS -out feedback.tar.gz.enc
+          rm -rf feedback
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: feedback-encrypted
+          path: feedback.tar.gz.enc
+          retention-days: 1
