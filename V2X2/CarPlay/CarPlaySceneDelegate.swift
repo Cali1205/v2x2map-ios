@@ -48,9 +48,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
             switch s.msgType {
             case .denm: 0
             case .spatem: 1
-            case .cam:
-                if s.isEmergency { return 1 }
-                return s.braking ? 2 : 3
+            case .cam: s.isEmergency ? 1 : (s.braking ? 2 : 3)
             default: 4
             }
         }
