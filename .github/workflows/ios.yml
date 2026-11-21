@@ -17,8 +17,8 @@ on:
       runner:
         description: macOS runner (try another one if the job is never picked up)
         type: choice
-        options: [macos-latest, macos-15-intel, macos-26]
-        default: macos-latest
+        options: [xcode-27, macos-latest, macos-26]
+        default: xcode-27
 
 permissions:
   contents: read
@@ -27,7 +27,7 @@ jobs:
   # One job so a signed build only waits once for a (scarce) macOS runner.
   # Signing steps run only on manual runs by repo writers; fork PRs never get secrets.
   build:
-    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'macos-latest' }}
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'xcode-27' }}
     env:
       SIGN: ${{ github.event_name == 'workflow_dispatch' && inputs.testflight }}
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
@@ -37,11 +37,11 @@ jobs:
       BUNDLE_ID: ${{ vars.BUNDLE_ID || 'io.github.cali1205.v2x2map' }}
     steps:
       - uses: actions/checkout@v5
-      # App Store Connect only accepts builds made with the iOS 26 SDK (Xcode 26+).
-      - name: Select Xcode 26
+      # App Store Connect requires the iOS 27 SDK (Xcode 27+) starting April 2027.
+      - name: Select latest Xcode
         run: |
-          XC=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
-          test -n "$XC" || { echo "::error::No Xcode 26 on this runner, pick another one"; ls -d /Applications/Xcode*; exit 1; }
+          XC=$(ls -d /Applications/Xcode_[0-9]*.app 2>/dev/null | grep -vi beta | sort -V | tail -1)
+          test -n "$XC" || XC=/Applications/Xcode.app
           sudo xcode-select -s "$XC" && xcodebuild -version
       - run: brew install xcodegen
       - run: xcodegen generate
