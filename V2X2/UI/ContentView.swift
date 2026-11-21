@@ -357,7 +357,10 @@ struct StationMarker: View {
         TimelineView(.periodic(from: .now, by: 1)) { _ in
             let active = station.isActive
             // Extras are overlays so the circle stays centred on the vehicle's position.
+            // MapKit places the annotation title (speed / cause) below the marker, so status
+            // badges sit above the circle to avoid overlapping the speed label.
             marker
+                .frame(width: 36, height: 36)
                 .overlay {
                     if active, station.braking {
                         Circle().stroke(.red, lineWidth: 4).frame(width: 34, height: 34)
@@ -365,21 +368,29 @@ struct StationMarker: View {
                     }
                 }
                 .overlay(alignment: .top) {
-                    if isOwn {
-                        Text("ICH")
-                            .font(.system(size: 9, weight: .heavy))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(.teal, in: Capsule())
-                            .fixedSize()
-                            .offset(y: -15)
+                    VStack(spacing: 2) {
+                        if isOwn {
+                            Text("ICH")
+                                .font(.system(size: 9, weight: .heavy))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(.teal, in: Capsule())
+                        }
+                        if active { VehicleBadges(station: station) }
                     }
+                    .fixedSize()
+                    .alignmentGuide(.top) { d in d[.bottom] + 4 }
                 }
-                .overlay(alignment: .leading) { BlinkerArrow(left: true, on: active && station.blinkLeft).offset(x: -15) }
-                .overlay(alignment: .trailing) { BlinkerArrow(left: false, on: active && station.blinkRight).offset(x: 15) }
-                .overlay(alignment: .bottom) {
-                    if active { VehicleBadges(station: station).fixedSize().offset(y: 20) }
+                .overlay(alignment: .leading) {
+                    BlinkerArrow(left: true, on: active && station.blinkLeft)
+                        .fixedSize()
+                        .alignmentGuide(.leading) { d in d[.trailing] + 4 }
+                }
+                .overlay(alignment: .trailing) {
+                    BlinkerArrow(left: false, on: active && station.blinkRight)
+                        .fixedSize()
+                        .alignmentGuide(.trailing) { d in d[.leading] - 4 }
                 }
             .saturation(active ? 1 : 0)
             .opacity(active ? 1 : 0.45)
@@ -444,7 +455,7 @@ struct BlinkerArrow: View {
     }
 }
 
-/// Small capsule below a vehicle: accelerating, assistance systems and notable lights.
+/// Small capsule above a vehicle: accelerating, assistance systems and notable lights.
 struct VehicleBadges: View {
     let station: Station
 
