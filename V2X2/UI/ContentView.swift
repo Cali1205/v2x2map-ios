@@ -16,15 +16,19 @@ struct ContentView: View {
     @AppStorage(Settings.autoRecord) private var autoRecord = false
 
     var body: some View {
+        let stations = model.mapStations
+        let hasOwnStationMarker = model.ego.egoId.map { id in
+            stations.contains { $0.id == id && $0.isActive }
+        } ?? false
         Map(position: $position) {
             if model.replay.isActive {
-                if showTrack, model.replay.fullTrack.count > 1 {
-                    MapPolyline(coordinates: model.replay.fullTrack).stroke(.blue.opacity(0.25), lineWidth: 3)
+                if showTrack, model.replay.remainingTrack.count > 1 {
+                    MapPolyline(coordinates: model.replay.remainingTrack).stroke(.blue.opacity(0.25), lineWidth: 3)
                 }
                 if showTrack, model.replay.playedTrack.count > 1 {
                     MapPolyline(coordinates: model.replay.playedTrack).stroke(.blue.opacity(0.85), lineWidth: 4)
                 }
-                if let fix = model.replay.fix {
+                if !hasOwnStationMarker, let fix = model.replay.fix {
                     Annotation("Aufzeichnung", coordinate: fix.coordinate) {
                         ReplayCarMarker(fix: fix, mapHeading: mapHeading)
                     }
@@ -35,7 +39,7 @@ struct ContentView: View {
                     MapPolyline(coordinates: model.location.track).stroke(.blue.opacity(0.7), lineWidth: 4)
                 }
             }
-            ForEach(model.mapStations) { s in
+            ForEach(stations) { s in
                 Annotation(s.title, coordinate: s.coordinate!) {
                     StationMarker(station: s, isOwn: model.ego.egoId == s.id, mapHeading: mapHeading)
                 }

@@ -191,6 +191,12 @@ final class Replayer {
         guard let t = recording?.track, trackIndex >= 0 else { return [] }
         return t[...trackIndex].map(\.coordinate)
     }
+    var remainingTrack: [CLLocationCoordinate2D] {
+        guard let t = recording?.track else { return [] }
+        let start = max(0, trackIndex)
+        guard start < t.count else { return [] }
+        return t[start...].map(\.coordinate)
+    }
 
     func load(_ url: URL) {
         stop()

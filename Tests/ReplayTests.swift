@@ -89,6 +89,8 @@ final class ReplayTests: XCTestCase {
         replayer.begin(r, name: "test", autoplay: false)
         XCTAssertEqual(delivered.map(\.0), [1])
         XCTAssertEqual(replayer.trackIndex, 0)
+        XCTAssertEqual(replayer.playedTrack.count, 1)
+        XCTAssertEqual(replayer.remainingTrack.count, 2)
         XCTAssertEqual(Clock.now.timeIntervalSince1970, 1000, accuracy: 1e-6)
 
         // Seek to t+110 with lookback 50s -> should replay frames in [t+60, t+110], i.e. ids 3 and 4, quietly
@@ -98,10 +100,12 @@ final class ReplayTests: XCTestCase {
         XCTAssertTrue(delivered.allSatisfy(\.1))
         XCTAssertEqual(replayer.trackIndex, 1)
         XCTAssertEqual(replayer.playedTrack.count, 2)
+        XCTAssertEqual(replayer.remainingTrack.count, 1)
         XCTAssertEqual(Clock.now.timeIntervalSince1970, 1110, accuracy: 1e-6)
 
         replayer.stop()
         XCTAssertFalse(replayer.isActive)
+        XCTAssertTrue(replayer.remainingTrack.isEmpty)
         XCTAssertNil(Clock.replayTime)
     }
 }
