@@ -24,8 +24,8 @@ targets:
         # iPhone only; XcodeGen's target preset would otherwise override this with "1,2".
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        # CI swaps in V2X2/CarPlay.entitlements once Apple has granted the CarPlay entitlement.
-        CODE_SIGN_ENTITLEMENTS: V2X2/V2X2.entitlements
+        # CarPlay Driving Task entitlement (CI can fall back to V2X2/V2X2.entitlements via carplay=false).
+        CODE_SIGN_ENTITLEMENTS: V2X2/CarPlay.entitlements
     info:
       path: V2X2/Info.plist
       properties:

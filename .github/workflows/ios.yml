@@ -11,9 +11,9 @@ on:
         type: boolean
         default: true
       carplay:
-        description: Sign with the CarPlay Driving Task entitlement (only after Apple granted it!)
+        description: Sign with the CarPlay Driving Task entitlement (disable for forks without the entitlement)
         type: boolean
-        default: false
+        default: true
       runner:
         description: macOS runner (try another one if the job is never picked up)
         type: choice

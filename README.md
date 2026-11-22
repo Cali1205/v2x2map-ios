@@ -61,8 +61,7 @@ Die App wird kostenlos als Beta über **Apple TestFlight** bereitgestellt (iOS 1
 - **Empfänger-Konfiguration:** Sniff- und Bluetooth-Zeitfenster des ESP32-C5 direkt aus den Einstellungen anpassen.
 
 ### CarPlay
-- Die CarPlay-Oberfläche (*Driving Task* mit Karte der 12 nächsten Objekte, Meldungsliste und automatischem Gefahren-Hinweis innerhalb von 2 km) ist vollständig in der App enthalten.
-- **Hinweis:** Für die Anzeige in CarPlay ist eine Freigabe des CarPlay-Entitlements durch Apple erforderlich. Solange diese aussteht, läuft die App regulär auf dem iPhone (inkl. Hintergrundbetrieb bei angeschlossenem Empfänger).
+- **Direkt auf dem Fahrzeugdisplay:** Zeigt die **12 nächsten V2X-Objekte** auf der CarPlay-Karte (*In der Nähe* – Gefahrenmeldungen, Ampeln, Einsatzfahrzeuge und Fahrzeuge in der Umgebung), eine nach Entfernung sortierte **Meldungsliste** sowie automatische **Gefahren-Popups** bei neuen DENM-Warnungen innerhalb von 2 km.
 
 ---
 
@@ -106,7 +105,7 @@ Voraussetzung ist ein Apple Developer Account. Der gesamte Build inkl. Signierun
    - `ASC_KEY_P8` – vollständiger Inhalt der `.p8`-Datei
    - `APPLE_TEAM_ID` – 10-stellige Team-ID
    - *(optional)* `FEEDBACK_PASS` – Passphrase für verschlüsselte TestFlight-Feedback-Artefakte (`.github/workflows/feedback.yml`)
-5. Unter *Actions → iOS → Run workflow* mit **TestFlight ✅** starten (CarPlay erst aktivieren, nachdem Apple `com.apple.developer.carplay-driving-task` freigegeben hat).
+5. Unter *Actions → iOS → Run workflow* mit **TestFlight ✅** starten (für eigene Forks ohne Apples `com.apple.developer.carplay-driving-task`-Freigabe den Haken bei **CarPlay** entfernen).
 
 Jeder Push und Pull Request baut und prüft automatisch alle Unit-Tests unsigniert im Simulator. Weitere technische Details, Architektur-Konventionen und Übergabe-Hinweise stehen in [AGENTS.md](AGENTS.md).
 

@@ -46,10 +46,10 @@ Everything builds on GitHub Actions (no local Mac required):
   - Prints any compiler warnings matching `warning: .*/V2X2/` and every `Test Case` result. **Keep warnings in `V2X2/` at 0.**
 - **Signed TestFlight Deploy (manual `workflow_dispatch`):**
   ```bash
-  gh workflow run ios.yml -R Cali1205/v2x2map-ios -f testflight=true -f runner=xcode-27
+  gh workflow run ios.yml -R Cali1205/v2x2map-ios -f testflight=true -f carplay=true -f runner=xcode-27
   ```
   - Uses `CURRENT_PROJECT_VERSION="${{ github.run_number }}"` (auto-incrementing build number).
-  - Uses `V2X2/V2X2.entitlements` by default. Only pass `-f carplay=true` after Apple has granted `com.apple.developer.carplay-driving-task` on the App ID.
+  - Signs with `V2X2/CarPlay.entitlements` (`com.apple.developer.carplay-driving-task`) by default (`carplay=true`). Pass `-f carplay=false` only on forks whose App ID lacks the CarPlay entitlement.
   - Required GitHub secrets: `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8`, `APPLE_TEAM_ID`. Optional variable: `BUNDLE_ID` (defaults to `io.github.cali1205.v2x2map`).
 - **TestFlight Feedback Fetch (`.github/workflows/feedback.yml`):**
   - Manual `workflow_dispatch` fetching TestFlight screenshots, comments, and crash logs via App Store Connect API, encrypted with `FEEDBACK_PASS` as a 1-day artifact (`feedback-encrypted`).
@@ -72,5 +72,5 @@ Everything builds on GitHub Actions (no local Mac required):
 ## 5. Current State (as of handoff)
 
 - **Main branch:** Clean, all 25 unit tests passing, 0 warnings on `xcode-27` (Xcode 27.2 / iOS 27.2 SDK).
-- **Implemented:** BLE receiver + duty-cycle config, 802.11p/GN/BTP/1609.2 decoder, full CAM + DENM (incl. `eventPosition`) + SPATEM phase decoder, own-vehicle & pseudonym-switch detection, live map with marker tap → `StationDetailView`, `Liste`/`Tabelle` view, PCAP + GPS recording & replay (1×–32×), MQTT forwarding, Geiger mode, CarPlay Driving Task scene (ready once Apple grants entitlement).
-- **Next suggested milestone:** See [`IDEAS.md`](IDEAS.md) — **CarPlay Live Activity (`ActivityKit`)** or **Acoustic / Voice Hazard Warnings** (no Apple entitlement required).
+- **Implemented:** BLE receiver + duty-cycle config, 802.11p/GN/BTP/1609.2 decoder, full CAM + DENM (incl. `eventPosition`) + SPATEM phase decoder, own-vehicle & pseudonym-switch detection, live map with marker tap → `StationDetailView`, `Liste`/`Tabelle` view, PCAP + GPS recording & replay (1×–32×), MQTT forwarding, Geiger mode, CarPlay Driving Task scene (signed with `com.apple.developer.carplay-driving-task` by default).
+- **Next suggested milestone:** See [`IDEAS.md`](IDEAS.md) — **CarPlay Live Activity (`ActivityKit`)** or **Acoustic / Voice Hazard Warnings**.
