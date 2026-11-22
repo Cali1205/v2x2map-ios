@@ -162,8 +162,7 @@ final class AppModel {
     func distance(to c: CLLocationCoordinate2D) -> CLLocationDistance? {
         guard replay.isActive else { return location.distance(to: c) }
         guard let f = replay.fix else { return nil }
-        return CLLocation(latitude: f.coordinate.latitude, longitude: f.coordinate.longitude)
-            .distance(from: CLLocation(latitude: c.latitude, longitude: c.longitude))
+        return EgoDetector.meters(f.coordinate, c)
     }
 
     func startRecording() {
@@ -182,11 +181,15 @@ final class AppModel {
     func forgetReceiver() { receiver.forget() }
     func clear() { stations.removeAll(); ego.reset() }
 
+    var defaultMqttNodeId: String? {
+        receiverMac?.replacingOccurrences(of: ":", with: "").lowercased()
+    }
+
     /// Applies the MQTT settings; call after they change. Node ID defaults to the receiver MAC.
     func syncMqtt() {
         let d = UserDefaults.standard
         let node = d.string(forKey: Settings.mqttNode)?.trimmingCharacters(in: .whitespaces).nonEmpty
-            ?? receiverMac?.replacingOccurrences(of: ":", with: "").lowercased() ?? "ios"
+            ?? defaultMqttNodeId ?? "ios"
         guard d.bool(forKey: Settings.mqttOn),
               let cfg = MqttClient.Config(url: d.string(forKey: Settings.mqttURL) ?? "", user: d.string(forKey: Settings.mqttUser) ?? "",
                                           password: MqttPassword.get(), node: node)

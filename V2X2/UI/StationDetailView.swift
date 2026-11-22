@@ -48,253 +48,237 @@ struct StationDetailView: View {
 
     @ViewBuilder
     private func content(_ s: Station) -> some View {
-        let isOwn = model.ego.egoId == s.id
-        let isPastOwn = model.ego.isSupersededOwnVehicle(s.id)
-        let active = s.isActive
+        let role = model.ownRole(for: s.id)
         let age = max(0, Int(Clock.now.timeIntervalSince(s.lastSeen).rounded()))
 
         List {
-            Section {
-                HStack(spacing: 12) {
-                    ZStack {
-                        Circle()
-                            .fill(isOwn ? Color.teal : (s.isEmergency ? Color.indigo : s.msgType.color))
-                            .frame(width: 42, height: 42)
-                        Image(systemName: s.symbol)
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(.white)
-                    }
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 6) {
-                            Text(s.stationClassLabel).font(.headline)
-                            if isOwn || isPastOwn {
-                                Text(isOwn ? "ICH" : "ICH (alt)")
-                                    .font(.caption2.weight(.bold))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(isOwn ? Color.teal : Color.secondary, in: Capsule())
-                            }
-                            if s.hasSiren || s.hasLightBar {
-                                Text(s.hasSiren ? "SIRENE" : "BLAULICHT")
-                                    .font(.caption2.weight(.bold))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(.blue, in: Capsule())
-                            }
-                        }
-                        HStack(spacing: 6) {
-                            Circle()
-                                .fill(active ? Color.green : Color.gray)
-                                .frame(width: 8, height: 8)
-                            Text(active ? "Aktiv" : "Inaktiv (vor \(age) s)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            ForEach(s.sortedMsgTypes, id: \.self) { t in
-                                Text(t.rawValue)
-                                    .font(.caption2.weight(.semibold))
-                                    .padding(.horizontal, 5)
-                                    .padding(.vertical, 1)
-                                    .background(t.color.opacity(0.18), in: Capsule())
-                                    .foregroundStyle(t.color)
-                            }
-                        }
-                    }
-                }
-                .padding(.vertical, 2)
-            }
-
-            if s.denmCause != nil || (s.spatPhase != nil && s.spatPhase != .unknown) {
-                Section("Meldung") {
-                    if let c = s.denmCause {
-                        LabeledContent("Gefahr") {
-                            Text("\(c.label) \(c.sublabel)".trimmingCharacters(in: .whitespaces))
-                                .foregroundStyle(.orange)
-                                .fontWeight(.semibold)
-                        }
-                        LabeledContent("Code", value: "\(c.causeCode) / \(c.subCauseCode)")
-                    }
-                    if let p = s.spatPhase, p != .unknown {
-                        LabeledContent("Ampelphase") {
-                            HStack(spacing: 6) {
-                                Circle().fill(phaseColor(p)).frame(width: 10, height: 10)
-                                Text(phaseLabel(p)).fontWeight(.semibold)
-                            }
-                        }
-                    }
-                }
-            }
-
-            Section("Bewegung & Position") {
-                if let v = s.speedMps {
-                    LabeledContent("Geschwindigkeit",
-                                   value: String(format: "%.1f km/h (%.1f m/s)", v * 3.6, v))
-                }
-                if let h = s.headingDeg {
-                    LabeledContent("Kurs", value: String(format: "%.1f° (%@)", h, compass(h)))
-                }
-                if let dir = s.cam?.driveDirection {
-                    LabeledContent("Fahrtrichtung", value: dir.label)
-                }
-                if let c = s.coordinate, let d = model.distance(to: c) {
-                    LabeledContent("Entfernung", value: formatDistance(d))
-                }
-                if let lane = s.cam?.lanePosition {
-                    LabeledContent("Spurposition", value: laneLabel(lane))
-                }
-                if let c = s.coordinate {
-                    LabeledContent("Koordinaten") {
-                        Text(String(format: "%.6f, %.6f", c.latitude, c.longitude))
-                            .font(.caption.monospacedDigit())
-                            .textSelection(.enabled)
-                    }
-                }
-                if let alt = s.altitudeM {
-                    LabeledContent("Höhe", value: String(format: "%.0f m", alt))
-                }
-            }
+            headerSection(s, role: role, age: age)
+            messageSection(s)
+            motionSection(s)
 
             if let cam = s.cam {
-                if cam.longAccel != nil || cam.latAccel != nil || cam.vertAccel != nil
-                    || cam.steeringWheelDeg != nil || cam.yawRateDegPerSec != nil || cam.curvature != nil {
-                    Section("Fahrdynamik") {
-                        if let a = cam.longAccel {
-                            LabeledContent("Längsbeschleunigung") {
-                                Text(String(format: "%+.2f m/s²", a))
-                                    .monospacedDigit()
-                                    .foregroundStyle(a <= -1.0 ? Color.red : (a >= 1.0 ? Color.green : Color.primary))
-                            }
-                        }
-                        if let la = cam.latAccel {
-                            LabeledContent("Querbeschleunigung", value: String(format: "%+.2f m/s²", la))
-                        }
-                        if let va = cam.vertAccel {
-                            LabeledContent("Vertikalbeschleunigung", value: String(format: "%+.2f m/s²", va))
-                        }
-                        if let sw = cam.steeringWheelDeg {
-                            LabeledContent("Lenkwinkel", value: String(format: "%+.1f°", sw))
-                        }
-                        if let yaw = cam.yawRateDegPerSec {
-                            LabeledContent("Gierrate", value: String(format: "%+.2f °/s", yaw))
-                        }
-                        if let curv = cam.curvature {
-                            LabeledContent("Kurvenradius", value: curvatureLabel(curv, radius: cam.curveRadiusM))
-                        }
-                    }
-                }
-
-                Section("Fahrzeug") {
-                    LabeledContent("Klasse", value: s.stationClassLabel)
-                    if let role = cam.vehicleRole {
-                        LabeledContent("Rolle", value: role.label)
-                    }
-                    if let l = cam.lengthM, let w = cam.widthM {
-                        LabeledContent("Abmessungen", value: String(format: "%.1f m × %.1f m", l, w))
-                    } else if let l = cam.lengthM {
-                        LabeledContent("Länge", value: String(format: "%.1f m", l))
-                    } else if let w = cam.widthM {
-                        LabeledContent("Breite", value: String(format: "%.1f m", w))
-                    }
-                    if let pc = cam.performanceClass {
-                        LabeledContent("Leistungsklasse", value: "Klasse \(pc)")
-                    }
-                    if let lb = cam.lightBar {
-                        LabeledContent("Blaulicht / Warnleuchte", value: lb ? "Aktiv" : "Aus")
-                    }
-                    if let sr = cam.siren {
-                        LabeledContent("Martinshorn", value: sr ? "Aktiv" : "Aus")
-                    }
-                }
-
-                if let ctl = cam.control {
-                    Section("Assistenz & Pedale") {
-                        FlagGrid(items: [
-                            ("Bremspedal", ctl.contains(.brakePedal), .red),
-                            ("Notbremsung", ctl.contains(.emergencyBrake), .red),
-                            ("Kollisionswarnung", ctl.contains(.collisionWarning), .orange),
-                            ("Gaspedal", ctl.contains(.gasPedal), .green),
-                            ("ACC", ctl.contains(.acc), .blue),
-                            ("Tempomat", ctl.contains(.cruiseControl), .blue),
-                            ("Limiter", ctl.contains(.speedLimiter), .purple),
-                        ])
-                    }
-                }
-
-                if let l = cam.lights {
-                    Section("Beleuchtung") {
-                        FlagGrid(items: [
-                            ("Blinker links", l.contains(.leftTurn), .orange),
-                            ("Blinker rechts", l.contains(.rightTurn), .orange),
-                            ("Abblendlicht", l.contains(.lowBeam), .blue),
-                            ("Fernlicht", l.contains(.highBeam), .indigo),
-                            ("Tagfahrlicht", l.contains(.daytime), .teal),
-                            ("Nebellicht", l.contains(.fog), .yellow),
-                            ("Rückfahrlicht", l.contains(.reverse), .red),
-                            ("Standlicht", l.contains(.parking), .cyan),
-                        ])
-                    }
-                }
+                dynamicsSection(cam)
+                vehicleSection(s, cam: cam)
+                controlSection(cam)
+                lightsSection(cam)
             }
 
-            Section("Funk & Protokoll") {
-                LabeledContent("Station-ID") {
-                    Text(s.idHex)
-                        .font(.caption.monospaced())
-                        .textSelection(.enabled)
-                }
-                if let sec = s.secured {
-                    LabeledContent("Signatur", value: sec ? "🔒 IEEE 1609.2 signiert" : "🔓 Unsigniert")
-                }
-                if let hz = s.updateRateHz {
-                    LabeledContent("Empfangsrate", value: String(format: "%.1f Hz", hz))
-                }
-                LabeledContent("Frames empfangen", value: "\(s.count)")
-                if let ph = s.cam?.pathHistoryCount {
-                    LabeledContent("PathHistory-Punkte", value: "\(ph)")
-                }
-                LabeledContent("Zuletzt gesehen",
-                               value: "\(s.lastSeen.formatted(date: .omitted, time: .standard)) (vor \(age) s)")
-                if !s.recent.isEmpty {
-                    DisclosureGroup("Letzte \(s.recent.count) Rohframes") {
-                        ForEach(s.recent) { f in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("\(f.received.formatted(date: .omitted, time: .standard)) · \(f.decoded.msgType.rawValue) · \(f.payload.count) B")
-                                    .font(.caption)
-                                Text(f.hexPreview())
-                                    .font(.caption2.monospaced())
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                                    .textSelection(.enabled)
-                            }
-                        }
-                    }
-                }
-            }
+            protocolSection(s, age: age)
         }
         .listStyle(.insetGrouped)
     }
 
-    private func phaseColor(_ p: SpatTemParser.Phase) -> Color {
-        switch p {
-        case .red: .red
-        case .yellow: .yellow
-        case .green: .green
-        case .unknown: .gray
+    private func headerSection(_ s: Station, role: StationOwnRole?, age: Int) -> some View {
+        let active = s.isActive
+        return Section {
+            HStack(spacing: 12) {
+                StationIcon(symbol: s.symbol, fill: s.tint(isOwn: role == .current), diameter: 42, glyphSize: 18)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text(s.stationClassLabel).font(.headline)
+                        if let role {
+                            OwnRoleBadge(role: role, style: .detail)
+                        }
+                        if s.hasSiren || s.hasLightBar {
+                            EmergencyBadge(station: s, style: .detail)
+                        }
+                    }
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(active ? Color.green : Color.gray)
+                            .frame(width: 8, height: 8)
+                        Text(active ? "Aktiv" : "Inaktiv (vor \(age) s)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        MsgTypeBadges(station: s, font: .caption2.weight(.semibold), fillOpacity: 0.18)
+                    }
+                }
+            }
+            .padding(.vertical, 2)
         }
     }
 
-    private func phaseLabel(_ p: SpatTemParser.Phase) -> String {
-        switch p {
-        case .red: "Rot"
-        case .yellow: "Gelb"
-        case .green: "Grün"
-        case .unknown: "Unbekannt"
+    @ViewBuilder
+    private func messageSection(_ s: Station) -> some View {
+        if s.denmCause != nil || (s.spatPhase != nil && s.spatPhase != .unknown) {
+            Section("Meldung") {
+                if let c = s.denmCause {
+                    LabeledContent("Gefahr") {
+                        Text(c.displayText)
+                            .foregroundStyle(.orange)
+                            .fontWeight(.semibold)
+                    }
+                    LabeledContent("Code", value: "\(c.causeCode) / \(c.subCauseCode)")
+                }
+                if let p = s.spatPhase, p != .unknown {
+                    LabeledContent("Ampelphase") {
+                        HStack(spacing: 6) {
+                            Circle().fill(p.color).frame(width: 10, height: 10)
+                            Text(p.label).fontWeight(.semibold)
+                        }
+                    }
+                }
+            }
         }
     }
 
-    private func formatDistance(_ d: Double) -> String {
-        d < 1000 ? String(format: "%.0f m", d) : String(format: "%.2f km", d / 1000)
+    private func motionSection(_ s: Station) -> some View {
+        Section("Bewegung & Position") {
+            if let v = s.speedMps {
+                LabeledContent("Geschwindigkeit",
+                               value: String(format: "%.1f km/h (%.1f m/s)", v * 3.6, v))
+            }
+            if let h = s.headingDeg {
+                LabeledContent("Kurs", value: String(format: "%.1f° (%@)", h, compass(h)))
+            }
+            if let dir = s.cam?.driveDirection {
+                LabeledContent("Fahrtrichtung", value: dir.label)
+            }
+            if let c = s.coordinate, let d = model.distance(to: c) {
+                LabeledContent("Entfernung", value: d.distanceText(kmDecimals: 2))
+            }
+            if let lane = s.cam?.lanePosition {
+                LabeledContent("Spurposition", value: laneLabel(lane))
+            }
+            if let c = s.coordinate {
+                LabeledContent("Koordinaten") {
+                    Text(String(format: "%.6f, %.6f", c.latitude, c.longitude))
+                        .font(.caption.monospacedDigit())
+                        .textSelection(.enabled)
+                }
+            }
+            if let alt = s.altitudeM {
+                LabeledContent("Höhe", value: String(format: "%.0f m", alt))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func dynamicsSection(_ cam: CamParser.State) -> some View {
+        if cam.longAccel != nil || cam.latAccel != nil || cam.vertAccel != nil
+            || cam.steeringWheelDeg != nil || cam.yawRateDegPerSec != nil || cam.curvature != nil {
+            Section("Fahrdynamik") {
+                if let a = cam.longAccel {
+                    LabeledContent("Längsbeschleunigung") {
+                        Text(String(format: "%+.2f m/s²", a))
+                            .monospacedDigit()
+                            .foregroundStyle(a.accelerationColor)
+                    }
+                }
+                if let la = cam.latAccel {
+                    LabeledContent("Querbeschleunigung", value: String(format: "%+.2f m/s²", la))
+                }
+                if let va = cam.vertAccel {
+                    LabeledContent("Vertikalbeschleunigung", value: String(format: "%+.2f m/s²", va))
+                }
+                if let sw = cam.steeringWheelDeg {
+                    LabeledContent("Lenkwinkel", value: String(format: "%+.1f°", sw))
+                }
+                if let yaw = cam.yawRateDegPerSec {
+                    LabeledContent("Gierrate", value: String(format: "%+.2f °/s", yaw))
+                }
+                if let curv = cam.curvature {
+                    LabeledContent("Kurvenradius", value: curvatureLabel(curv, radius: cam.curveRadiusM))
+                }
+            }
+        }
+    }
+
+    private func vehicleSection(_ s: Station, cam: CamParser.State) -> some View {
+        Section("Fahrzeug") {
+            LabeledContent("Klasse", value: s.stationClassLabel)
+            if let role = cam.vehicleRole {
+                LabeledContent("Rolle", value: role.label)
+            }
+            if let l = cam.lengthM, let w = cam.widthM {
+                LabeledContent("Abmessungen", value: String(format: "%.1f m × %.1f m", l, w))
+            } else if let l = cam.lengthM {
+                LabeledContent("Länge", value: String(format: "%.1f m", l))
+            } else if let w = cam.widthM {
+                LabeledContent("Breite", value: String(format: "%.1f m", w))
+            }
+            if let pc = cam.performanceClass {
+                LabeledContent("Leistungsklasse", value: "Klasse \(pc)")
+            }
+            if let lb = cam.lightBar {
+                LabeledContent("Blaulicht / Warnleuchte", value: lb ? "Aktiv" : "Aus")
+            }
+            if let sr = cam.siren {
+                LabeledContent("Martinshorn", value: sr ? "Aktiv" : "Aus")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func controlSection(_ cam: CamParser.State) -> some View {
+        if let ctl = cam.control {
+            Section("Assistenz & Pedale") {
+                FlagGrid(items: [
+                    ("Bremspedal", ctl.contains(.brakePedal), .red),
+                    ("Notbremsung", ctl.contains(.emergencyBrake), .red),
+                    ("Kollisionswarnung", ctl.contains(.collisionWarning), .orange),
+                    ("Gaspedal", ctl.contains(.gasPedal), .green),
+                    ("ACC", ctl.contains(.acc), .blue),
+                    ("Tempomat", ctl.contains(.cruiseControl), .blue),
+                    ("Limiter", ctl.contains(.speedLimiter), .purple),
+                ])
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func lightsSection(_ cam: CamParser.State) -> some View {
+        if let l = cam.lights {
+            Section("Beleuchtung") {
+                FlagGrid(items: [
+                    ("Blinker links", l.contains(.leftTurn), .orange),
+                    ("Blinker rechts", l.contains(.rightTurn), .orange),
+                    ("Abblendlicht", l.contains(.lowBeam), .blue),
+                    ("Fernlicht", l.contains(.highBeam), .indigo),
+                    ("Tagfahrlicht", l.contains(.daytime), .teal),
+                    ("Nebellicht", l.contains(.fog), .yellow),
+                    ("Rückfahrlicht", l.contains(.reverse), .red),
+                    ("Standlicht", l.contains(.parking), .cyan),
+                ])
+            }
+        }
+    }
+
+    private func protocolSection(_ s: Station, age: Int) -> some View {
+        Section("Funk & Protokoll") {
+            LabeledContent("Station-ID") {
+                Text(s.idHex)
+                    .font(.caption.monospaced())
+                    .textSelection(.enabled)
+            }
+            if let sec = s.secured {
+                LabeledContent("Signatur", value: sec ? "🔒 IEEE 1609.2 signiert" : "🔓 Unsigniert")
+            }
+            if let hz = s.updateRateHz {
+                LabeledContent("Empfangsrate", value: String(format: "%.1f Hz", hz))
+            }
+            LabeledContent("Frames empfangen", value: "\(s.count)")
+            if let ph = s.cam?.pathHistoryCount {
+                LabeledContent("PathHistory-Punkte", value: "\(ph)")
+            }
+            LabeledContent("Zuletzt gesehen",
+                           value: "\(s.lastSeen.formatted(date: .omitted, time: .standard)) (vor \(age) s)")
+            if !s.recent.isEmpty {
+                DisclosureGroup("Letzte \(s.recent.count) Rohframes") {
+                    ForEach(s.recent) { f in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(f.received.formatted(date: .omitted, time: .standard)) · \(f.decoded.msgType.rawValue) · \(f.payload.count) B")
+                                .font(.caption)
+                            Text(f.hexPreview())
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .textSelection(.enabled)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private func compass(_ deg: Double) -> String {

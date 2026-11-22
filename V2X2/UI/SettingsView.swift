@@ -70,7 +70,7 @@ struct SettingsView: View {
                             .textInputAutocapitalization(.never).autocorrectionDisabled()
                         SecureField("Passwort (optional)", text: $mqttPassword)
                         TextField("Node-ID", text: $mqttNode,
-                                  prompt: Text(model.receiverMac?.replacingOccurrences(of: ":", with: "").lowercased() ?? "MAC des Empfängers"))
+                                  prompt: Text(model.defaultMqttNodeId ?? "MAC des Empfängers"))
                             .textInputAutocapitalization(.never).autocorrectionDisabled()
                         LabeledContent("Status", value: mqttStatus)
                     }
