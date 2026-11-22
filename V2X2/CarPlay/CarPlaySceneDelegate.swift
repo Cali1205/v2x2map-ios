@@ -91,22 +91,11 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     private func detail(_ s: Station, _ d: Double?) -> String {
         let kind = s.msgType == .cam ? s.stationClassLabel : s.msgType.label
         guard let d else { return kind }
-        let dist = d < 1000 ? String(format: "%.0f m", d) : String(format: "%.1f km", d / 1000)
-        return "\(kind) · \(dist)"
+        return "\(kind) · \(d.distanceText())"
     }
 
     private func pinImage(_ s: Station) -> UIImage? {
-        let color: UIColor
-        if s.isEmergency {
-            color = .systemIndigo
-        } else {
-            switch s.spatPhase {
-            case .red: color = .systemRed
-            case .yellow: color = .systemYellow
-            case .green: color = .systemGreen
-            default: color = s.braking ? .systemRed : UIColor(s.msgType.color)
-            }
-        }
+        let color = UIColor(s.tint(phase: true, brakingRed: true))
         return UIImage(systemName: s.symbol)?.withTintColor(color, renderingMode: .alwaysOriginal)
     }
 

@@ -15,10 +15,8 @@ final class PcapRecorder {
     var isRecording: Bool { handle != nil }
 
     func start(at location: CLLocation? = nil) {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let f = DateFormatter()
-        f.dateFormat = "yyyyMMdd-HHmmss"
-        let url = docs.appendingPathComponent("v2x2-\(f.string(from: Date())).pcap")
+        let f = RecordingFile.makeDateFormatter()
+        let url = RecordingFile.folder.appendingPathComponent("\(RecordingFile.filePrefix)\(f.string(from: Date())).pcap")
         var hdr = Data()
         hdr.le32(0xA1B2_C3D4); hdr.le16(2); hdr.le16(4); hdr.le32(0); hdr.le32(0); hdr.le32(65535); hdr.le32(105)
         guard FileManager.default.createFile(atPath: url.path, contents: hdr),
@@ -28,7 +26,7 @@ final class PcapRecorder {
         currentFile = url
         frames = 0
 
-        let csv = url.deletingPathExtension().appendingPathExtension("csv")
+        let csv = RecordingFile.trackURL(for: url)
         if FileManager.default.createFile(atPath: csv.path, contents: Data(TrackFile.header.utf8)),
            let t = try? FileHandle(forWritingTo: csv) {
             t.seekToEndOfFile()

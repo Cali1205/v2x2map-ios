@@ -58,8 +58,9 @@ struct FrameReader {
     }
 
     private func magicIndex() -> Int? {
-        guard buf.count >= 4 else { return nil }
-        for i in 0...(buf.count - 4) where buf[i] == 0x49 && buf[i + 1] == 0x54 && buf[i + 2] == 0x53 && buf[i + 3] == 0x35 {
+        let m = Self.magic
+        guard buf.count >= m.count else { return nil }
+        for i in 0...(buf.count - m.count) where buf[i] == m[0] && buf[i + 1] == m[1] && buf[i + 2] == m[2] && buf[i + 3] == m[3] {
             return i
         }
         return nil

@@ -145,7 +145,7 @@ enum ItsG5Decoder {
     }
 }
 
-enum MsgType: String, CaseIterable, Hashable {
+enum MsgType: String, Hashable {
     case unknown = "?", cam = "CAM", denm = "DENM", mapem = "MAPEM", spatem = "SPATEM",
          ivim = "IVIM", srem = "SREM", ssem = "SSEM", cpm = "CPM", tlm = "TLM", rtcmem = "RTCMEM"
 
