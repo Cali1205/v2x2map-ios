@@ -14,6 +14,19 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     private var timer: Timer?
     private var alerted: Set<UInt64> = []
     private var shownIds: [UInt64] = []
+    private let pins = CarPlayPinRenderer()
+    /// Flipped every refresh; drives the pin "animation" (see CarPlayPinRenderer).
+    private var tick = false
+    /// Station ids in the order first seen, newest first. Stays in the list after a station goes inactive.
+    private var history: [UInt64] = []
+    private var listSignature: [HistoryRow] = []
+
+    private struct HistoryRow: Equatable {
+        let id: UInt64
+        let title: String
+        let detail: String
+        let active: Bool
+    }
 
     /// CarPlay limits the point-of-interest template to 12 pins.
     private static let maxPins = 12
@@ -28,8 +41,8 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         let tabs = CPTabBarTemplate(templates: [mapTemplate, listTemplate])
         interfaceController.setRootTemplate(tabs, animated: false, completion: nil)
         refresh()
-        // shortcut: polls AppModel; fine at this rate, switch to withObservationTracking if it ever lags.
-        timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.refresh() }
+        // shortcut: polls AppModel once a second (also drives the pin animation); switch to withObservationTracking if it ever lags.
+        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.refresh() }
     }
 
     func templateApplicationScene(_ scene: CPTemplateApplicationScene,
@@ -59,44 +72,72 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     }
 
     private func refresh() {
+        tick.toggle()
         let items = nearby()
         alertNewHazards(items)
 
-        let pins = Array(items.prefix(Self.maxPins))
-        let ids = pins.map(\.station.id)
+        let top = Array(items.prefix(Self.maxPins))
+        let ids = top.map(\.station.id)
         // Vehicles move, so pins are always re-set; keep the user's selected pin selected.
         let sel = mapTemplate.selectedIndex
         let selectedId = shownIds.indices.contains(sel) ? shownIds[sel] : nil
         shownIds = ids
-        mapTemplate.setPointsOfInterest(pins.map(poi), selectedIndex: selectedId.flatMap { ids.firstIndex(of: $0) } ?? NSNotFound)
+        mapTemplate.setPointsOfInterest(top.map(poi), selectedIndex: selectedId.flatMap { ids.firstIndex(of: $0) } ?? NSNotFound)
 
-        let rows = items.prefix(CPListTemplate.maximumItemCount).map { s, _, d in
-            CPListItem(text: s.title, detailText: detail(s, d), image: pinImage(s))
+        refreshHistory()
+    }
+
+    /// "Meldungen" as history: new stations go on top, quiet ones stay (grey) until AppModel prunes them.
+    private func refreshHistory() {
+        let model = AppModel.shared
+        let live = model.stations.values.filter {
+            $0.coordinate != nil && !model.ego.isOwnVehicle($0.id) && !model.ego.isSupersededOwnVehicle($0.id)
         }
-        listTemplate.updateSections([CPListSection(items: Array(rows))])
+        let byId = Dictionary(uniqueKeysWithValues: live.map { ($0.id, $0) })
+        history.removeAll { byId[$0] == nil }
+        let known = Set(history)
+        history.insert(contentsOf: live.filter { !known.contains($0.id) }.sorted { $0.lastSeen > $1.lastSeen }.map(\.id), at: 0)
+
+        // Cap only the display: dropping ids from `history` would make them look new again.
+        let shown = history.prefix(CPListTemplate.maximumItemCount).compactMap { byId[$0] }
+        let rows = shown.map { s -> HistoryRow in
+            let d = s.coordinate.flatMap { model.distance(to: $0) }
+            return HistoryRow(id: s.id, title: s.title, detail: s.isActive ? detail(s, d) : "\(detail(s, d)) · \(ageText(s))", active: s.isActive)
+        }
+        guard rows != listSignature else { return }
+        listSignature = rows
+        let items = zip(rows, shown).map { row, s in
+            CPListItem(text: row.title, detailText: row.detail, image: pins.image(for: s, tick: false, selected: false, inactive: !row.active, heading: false))
+        }
+        listTemplate.updateSections([CPListSection(items: items)])
+    }
+
+    /// "vor < 1 min" / "vor 2 min" / "vor 1 h", on the virtual clock so replays behave like live mode.
+    private func ageText(_ s: Station) -> String {
+        let secs = max(0, Int(Clock.now.timeIntervalSince(s.lastSeen)))
+        if secs < 60 { return "vor < 1 min" }  // minute resolution keeps the list signature stable
+        if secs < 3600 { return "vor \(secs / 60) min" }
+        return "vor \(secs / 3600) h"
     }
 
     private func poi(_ item: (station: Station, coordinate: CLLocationCoordinate2D, distance: Double?)) -> CPPointOfInterest {
         let s = item.station
         let mapItem = MKMapItem(placemark: MKPlacemark(coordinate: item.coordinate))
         mapItem.name = s.title
-        return CPPointOfInterest(location: mapItem, title: s.title, subtitle: detail(s, item.distance),
+        let poi = CPPointOfInterest(location: mapItem, title: s.title, subtitle: detail(s, item.distance),
                                   summary: s.statusText.isEmpty ? nil : s.statusText,
                                   detailTitle: s.msgType == .cam ? s.stationClassLabel : s.msgType.label,
                                   detailSubtitle: detail(s, item.distance),
                                   detailSummary: s.statusText.isEmpty ? nil : s.statusText,
-                                  pinImage: pinImage(s))
+                                  pinImage: pins.image(for: s, tick: tick, selected: false))
+        poi.selectedPinImage = pins.image(for: s, tick: tick, selected: true)
+        return poi
     }
 
     private func detail(_ s: Station, _ d: Double?) -> String {
         let kind = s.msgType == .cam ? s.stationClassLabel : s.msgType.label
         guard let d else { return kind }
         return "\(kind) · \(d.distanceText())"
-    }
-
-    private func pinImage(_ s: Station) -> UIImage? {
-        let color = UIColor(s.tint(phase: true, brakingRed: true))
-        return UIImage(systemName: s.symbol)?.withTintColor(color, renderingMode: .alwaysOriginal)
     }
 
     /// One alert per new hazard (DENM) within 2 km or of unknown distance; closes itself after 8 s.
