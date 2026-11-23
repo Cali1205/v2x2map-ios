@@ -9,7 +9,7 @@ struct ContentView: View {
     @State private var showRecordings = false
     @State private var showSettings = false
     @State private var showRecordPrompt = false
-    @State private var didHandleLaunch = false
+    @State private var didAskRecording = false
     @State private var selectedStation: StationSelection?
     @AppStorage(Settings.showTrack) private var showTrack = true
     @AppStorage(Settings.mapStyle) private var mapStyle = 0
@@ -94,11 +94,13 @@ struct ContentView: View {
         .sheet(isPresented: $showRecordings) { RecordingsView() }
         .sheet(isPresented: $showSettings) { SettingsView() }
         .onAppear {
-            guard !didHandleLaunch else { return }
-            didHandleLaunch = true
-            if autoRecord {
-                model.startRecording()
-            } else if !model.recorder.isRecording, !model.replay.isActive {
+            if autoRecord { model.startRecording() }
+        }
+        // Ask once per app session, only after the ESP32 receiver is actually connected.
+        .onChange(of: model.state) { _, state in
+            guard state == .connected, !didAskRecording else { return }
+            didAskRecording = true
+            if !model.recorder.isRecording, !model.replay.isActive {
                 showRecordPrompt = true
             }
         }
