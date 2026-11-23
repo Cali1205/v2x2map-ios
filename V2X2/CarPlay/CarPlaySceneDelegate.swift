@@ -20,11 +20,38 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     /// Station ids in the order first seen, newest first. Stays in the list after a station goes inactive.
     private var history: [UInt64] = []
     private var listSignature: [HistoryRow] = []
+    private var mapSignature: MapSignature?
+
+    private struct MapPinSignature: Equatable {
+        let id: UInt64
+        let latE5: Int
+        let lonE5: Int
+        let headingBucket: Int
+        let symbol: String
+        let msgType: MsgType
+        let spatPhase: SpatTemParser.Phase?
+        let isEmergency: Bool
+        let braking: Bool
+        let title: String
+        let detail: String
+        let detailTitle: String
+        let statusText: String
+    }
+
+    private struct MapSignature: Equatable {
+        let pins: [MapPinSignature]
+        let selectedId: UInt64?
+    }
 
     private struct HistoryRow: Equatable {
         let id: UInt64
         let title: String
         let detail: String
+        let symbol: String
+        let msgType: MsgType
+        let spatPhase: SpatTemParser.Phase?
+        let braking: Bool
+        let isEmergency: Bool
         let active: Bool
     }
 
@@ -78,11 +105,35 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
 
         let top = Array(items.prefix(Self.maxPins))
         let ids = top.map(\.station.id)
-        // Vehicles move, so pins are always re-set; keep the user's selected pin selected.
+        // Skip re-setting pins when nothing visible changed and no shown pin animates; keep the user's selection.
         let sel = mapTemplate.selectedIndex
         let selectedId = shownIds.indices.contains(sel) ? shownIds[sel] : nil
-        shownIds = ids
-        mapTemplate.setPointsOfInterest(top.map(poi), selectedIndex: selectedId.flatMap { ids.firstIndex(of: $0) } ?? NSNotFound)
+        let sig = MapSignature(
+            pins: top.map { item in
+                let s = item.station
+                return MapPinSignature(
+                    id: s.id,
+                    latE5: Int((item.coordinate.latitude * 1e5).rounded()),
+                    lonE5: Int((item.coordinate.longitude * 1e5).rounded()),
+                    headingBucket: CarPlayPinRenderer.headingBucket(for: s) ?? -1,
+                    symbol: s.symbol,
+                    msgType: s.msgType,
+                    spatPhase: s.spatPhase,
+                    isEmergency: s.isEmergency,
+                    braking: s.braking,
+                    title: s.title,
+                    detail: detail(s, item.distance),
+                    detailTitle: s.msgType == .cam ? s.stationClassLabel : s.msgType.label,
+                    statusText: s.statusText
+                )
+            },
+            selectedId: selectedId
+        )
+        if sig != mapSignature || top.contains(where: { CarPlayPinRenderer.animates($0.station) }) {
+            mapSignature = sig
+            shownIds = ids
+            mapTemplate.setPointsOfInterest(top.map(poi), selectedIndex: selectedId.flatMap { ids.firstIndex(of: $0) } ?? NSNotFound)
+        }
 
         refreshHistory()
     }
@@ -101,15 +152,30 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         // Cap only the display: dropping ids from `history` would make them look new again.
         let shown = history.prefix(CPListTemplate.maximumItemCount).compactMap { byId[$0] }
         let rows = shown.map { s -> HistoryRow in
-            let d = s.coordinate.flatMap { model.distance(to: $0) }
-            return HistoryRow(id: s.id, title: s.title, detail: s.isActive ? detail(s, d) : "\(detail(s, d)) · \(ageText(s))", active: s.isActive)
+            let d = s.coordinate.flatMap { model.distance(to: $0) }.map(bucketedDistance)
+            return HistoryRow(
+                id: s.id,
+                title: s.title,
+                detail: s.isActive ? detail(s, d) : "\(detail(s, d)) · \(ageText(s))",
+                symbol: s.symbol,
+                msgType: s.msgType,
+                spatPhase: s.spatPhase,
+                braking: s.braking,
+                isEmergency: s.isEmergency,
+                active: s.isActive
+            )
         }
         guard rows != listSignature else { return }
         listSignature = rows
         let items = zip(rows, shown).map { row, s in
-            CPListItem(text: row.title, detailText: row.detail, image: pins.image(for: s, tick: false, selected: false, inactive: !row.active, heading: false))
+            CPListItem(text: row.title, detailText: row.detail, image: pins.image(for: s, tick: true, selected: false, inactive: !row.active, heading: false))
         }
         listTemplate.updateSections([CPListSection(items: items)])
+    }
+
+    /// Rounds to 50 m below 1 km and 0.1 km above so list rows stay stable across minor GPS jitter.
+    private func bucketedDistance(_ d: Double) -> Double {
+        d < 1000 ? (d / 50).rounded() * 50 : (d / 100).rounded() * 100
     }
 
     /// "vor < 1 min" / "vor 2 min" / "vor 1 h", on the virtual clock so replays behave like live mode.
