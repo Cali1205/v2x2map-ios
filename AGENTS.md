@@ -27,7 +27,7 @@ The Xcode project (`V2X2.xcodeproj`) is **not** checked into git; it is generate
 | `V2X2/Model/PcapRecorder.swift` | Wireshark PCAP writer + companion GPS track CSV in Documents (`UIFileSharingEnabled`). |
 | `V2X2/Model/Replayer.swift` | Drive replay engine (`Clock.now` virtual clock, 1×–32× playback, seek/scrubbing, Wireshark PCAP + Radiotap import). |
 | `V2X2/Model/MqttClient.swift` | Minimal TLS/TCP MQTT 3.1.1 client + Keychain password storage (`MqttPassword`). |
-| `V2X2/UI/ContentView.swift` | Main MapKit screen, `StatusBar`, `ReplayBar`, tappable `StationMarker`, `VehicleBadges`, `MarkerGeometry`, launch recording prompt. |
+| `V2X2/UI/ContentView.swift` | Main MapKit screen, `StatusBar`, `ReplayBar`, tappable `StationMarker`, `VehicleBadges`, `MarkerGeometry`, recording prompt on first ESP32 connect. |
 | `V2X2/UI/StationDetailView.swift` | Live telemetry inspector sheet (`StationDetailView` + `StationSelection`) with structured key/value sections & raw frame log. |
 | `V2X2/UI/StationListView.swift` | Segmented `Liste` / `Tabelle` view with active-only filter, scrollable live telemetry matrix, and drill-down into `StationDetailView`. |
 | `V2X2/UI/RecordingsView.swift` | Recorded drives manager, replay launcher, ShareLink, swipe-delete, PCAP file importer. |
