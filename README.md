@@ -51,7 +51,7 @@ Die App wird kostenlos als Beta über **Apple TestFlight** bereitgestellt (iOS 1
 - **Liste & Tabelle:** Tippe unten auf **Liste** und schalte oben zwischen **Liste** und **Tabelle** um. Die **Tabelle** zeigt alle Stationen nebeneinander mit allen Fahrzeugwerten im Live-Vergleich (horizontal & vertikal scrollbar, mit Filter **Aktiv**).
 
 ### Aufnahme & Wiedergabe (Replay)
-- **Fahrt aufzeichnen:** Speichert alle empfangenen Rohframes als Wireshark-kompatible `.pcap`-Datei plus GPS-Spur (auch im Hintergrund). Sobald der ESP32-Empfänger verbunden ist, fragt die App einmal nach – oder sie startet die Aufnahme automatisch beim App-Start (*Optionen → Immer automatisch aufzeichnen*).
+- **Fahrt aufzeichnen:** Speichert alle empfangenen Rohframes als Wireshark-kompatible `.pcap`-Datei plus GPS-Spur (auch im Hintergrund). Sobald der ESP32-Empfänger verbunden ist, fragt die App einmal nach – oder sie startet die Aufnahme automatisch beim App-Start (*Optionen → Immer automatisch aufzeichnen*). Ist der ESP32 5 Minuten lang nicht verbunden, endet die Aufnahme automatisch. GPS läuft im Hintergrund nur, solange der ESP32 verbunden ist (plus diese 5 Minuten).
 - **Fahrten abspielen:** Über **Fahrten** spielst du eigene Aufnahmen oder importierte Wireshark-PCAPs erneut ab – mit Zeitstrahl-Scrubbing, ±15-s-Sprüngen und Geschwindigkeit von **1× bis 32×**.
 - **Teilen:** Aufnahmen können direkt aus der App geteilt oder über die iOS-**Dateien**-App kopiert werden.
 

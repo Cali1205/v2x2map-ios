@@ -14,13 +14,21 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
         manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
         manager.distanceFilter = 5
         manager.activityType = .automotiveNavigation
-        // Keep tracking while the app is in the background (UIBackgroundModes: location);
-        // "while using" permission is enough because updates start in the foreground.
-        manager.allowsBackgroundLocationUpdates = true
+        // Background tracking is switched on by AppModel only while the ESP32 is connected (see backgroundUpdates).
         manager.pausesLocationUpdatesAutomatically = false
-        manager.showsBackgroundLocationIndicator = true
         manager.requestWhenInUseAuthorization()
         manager.startUpdatingLocation()
+    }
+
+    /// Keep GPS running in the background (UIBackgroundModes: location). In the foreground GPS always runs;
+    /// "while using" permission is enough because updates were started in the foreground.
+    @ObservationIgnored var backgroundUpdates = false {
+        didSet {
+            guard backgroundUpdates != oldValue else { return }
+            manager.allowsBackgroundLocationUpdates = backgroundUpdates
+            manager.showsBackgroundLocationIndicator = backgroundUpdates
+            if backgroundUpdates { manager.startUpdatingLocation() }
+        }
     }
 
     @ObservationIgnored private var recentFixes: [OwnFix] = []

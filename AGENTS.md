@@ -23,7 +23,7 @@ The Xcode project (`V2X2.xcodeproj`) is **not** checked into git; it is generate
 | `V2X2/Decode/UperParsers.swift` | ASN.1 UPER `BitReader` + `SpatTemParser`, `DenmParser` (eventPosition, altitude, stationType, cause/subCause), `CamParser` (Basic, High-Frequency, Low-Frequency, PathHistory, SpecialVehicleContainer). |
 | `V2X2/Model/AppModel.swift` | `@Observable` `AppModel.shared`, `Station` state & merge logic, `Settings` keys, `Geiger` audio/haptic ticks. |
 | `V2X2/Model/EgoDetector.swift` | Own-vehicle detection via motion correlation (distance, speed, heading) + pseudonym ID switch handoff (`ICH` / superseded IDs). |
-| `V2X2/Model/LocationTracker.swift` | CoreLocation navigation tracker (`allowsBackgroundLocationUpdates = true`, `showsBackgroundLocationIndicator = true`, `WhenInUse`). |
+| `V2X2/Model/LocationTracker.swift` | CoreLocation navigation tracker (`WhenInUse`); background updates (`backgroundUpdates`) only while the ESP32 is connected, toggled by `AppModel.receiverStateChanged`, which also stops recording after `disconnectGrace` (5 min) without the ESP32. |
 | `V2X2/Model/PcapRecorder.swift` | Wireshark PCAP writer + companion GPS track CSV in Documents (`UIFileSharingEnabled`). |
 | `V2X2/Model/Replayer.swift` | Drive replay engine (`Clock.now` virtual clock, 1×–32× playback, seek/scrubbing, Wireshark PCAP + Radiotap import). |
 | `V2X2/Model/MqttClient.swift` | Minimal TLS/TCP MQTT 3.1.1 client + Keychain password storage (`MqttPassword`). |

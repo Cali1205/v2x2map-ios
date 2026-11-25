@@ -124,13 +124,17 @@ final class AppModel {
     @ObservationIgnored private let receiver = Receiver()
     @ObservationIgnored private var reader = FrameReader()
     @ObservationIgnored private var pruneTimer: Timer?
+    @ObservationIgnored private var disconnectTimer: Timer?
+
+    /// After losing the ESP32 the recording keeps running (and background GPS stays on) this long, then stops.
+    static let disconnectGrace: TimeInterval = 5 * 60
 
     var markerTTL: TimeInterval { TimeInterval(max(1, UserDefaults.standard.integer(forKey: Settings.ttlMinutes))) * 60 }
 
     private init() {
         UserDefaults.standard.register(defaults: [Settings.ttlMinutes: 10, Settings.showTrack: true,
                                                   Settings.buttonLabels: true, Settings.mqttURL: Settings.defaultBroker])
-        receiver.onState = { [weak self] in self?.state = $0 }
+        receiver.onState = { [weak self] in self?.receiverStateChanged($0) }
         receiver.onConfig = { [weak self] in self?.receiverConfig = $0 }
         receiver.onMac = { [weak self] in self?.receiverMac = $0; self?.syncMqtt() }
         receiver.onData = { [weak self] data in
@@ -143,6 +147,25 @@ final class AppModel {
         replay.lookback = { [weak self] in self?.markerTTL ?? 600 }
         syncMqtt()
         pruneTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.prune() }
+        receiverStateChanged(state)
+    }
+
+    /// Background GPS only while the ESP32 is connected; the recording ends after `disconnectGrace` without it.
+    private func receiverStateChanged(_ s: Receiver.State) {
+        state = s
+        if s == .connected {
+            disconnectTimer?.invalidate()
+            disconnectTimer = nil
+            location.backgroundUpdates = true
+        } else if disconnectTimer == nil {
+            // Real time on purpose (not Clock.now): this is about the live BLE link, not replayed frames.
+            disconnectTimer = Timer.scheduledTimer(withTimeInterval: Self.disconnectGrace, repeats: false) { [weak self] _ in
+                guard let self else { return }
+                disconnectTimer = nil
+                location.backgroundUpdates = false
+                if recorder.isRecording { recorder.stop() }
+            }
+        }
     }
 
     /// Stations with a position that were seen within the marker TTL (only active ones if so set).
@@ -170,6 +193,7 @@ final class AppModel {
         // Start the track with the current fix if it is fresh, so the replay has a position right away.
         let fresh = location.last.flatMap { Date().timeIntervalSince($0.timestamp) < 30 ? $0 : nil }
         recorder.start(at: fresh)
+        if state != .connected { receiverStateChanged(state) }  // also time out recordings started without the ESP32
     }
 
     func toggleRecording() {
